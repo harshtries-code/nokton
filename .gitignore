@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+
+# Node
+node_modules/
+dist/
+build/
+*.log
+npm-debug.log*
+
+# Electron
+frontend/dist/
+frontend/release/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Nokton data
+.nokton/
+*.enc
+.salt
+
+# Logs
+logs/
+*.log
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Plan & Work logs (local only)
+PLAN.md
+WORK.md
