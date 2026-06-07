@@ -73,31 +73,47 @@ def search_files(query: str, folder: str = ".", max_results: int = 20) -> str:
     """
     results = []
     p = Path(folder).expanduser().resolve()
-    for f in p.rglob(query):
-        results.append(str(f.relative_to(p)))
-        if len(results) >= max_results:
-            break
+    if not p.exists() or not p.is_dir():
+        return f"Error: folder '{folder}' does not exist or is not a directory"
+    try:
+        for f in p.rglob(query):
+            try:
+                rel = str(f.relative_to(p))
+            except ValueError:
+                rel = str(f)
+            results.append(rel)
+            if len(results) >= max_results:
+                break
+    except (NotImplementedError, OSError) as e:
+        return f"Search error: {e}"
     return "\n".join(results) if results else "No matches found"
 
 
 @tool(category="file_write", requires_confirm=True)
-def delete_file(path: str) -> str:
-    """Permanently delete a file or empty directory.
+def delete_file(path: str, recursive: bool = False) -> str:
+    """Permanently delete a file or directory.
     Args:
         path: Path to the file or directory to delete.
+        recursive: If True, delete directories and their contents. Defaults to False.
     Returns:
         Confirmation message.
     """
     p = Path(path).expanduser().resolve()
     if not p.exists():
         return f"Error: '{path}' does not exist"
-    if p.is_file():
+    if p.is_file() or p.is_symlink():
         p.unlink()
         return f"Deleted file: {path}"
     if p.is_dir():
-        p.rmdir()
-        return f"Deleted empty directory: {path}"
-    return f"Error: '{path}' is not a file or empty directory"
+        if recursive:
+            shutil.rmtree(p)
+            return f"Deleted directory recursively: {path}"
+        try:
+            p.rmdir()
+            return f"Deleted empty directory: {path}"
+        except OSError:
+            return f"Error: '{path}' is not empty. Use recursive=True to delete non-empty directories."
+    return f"Error: '{path}' is not a file or directory"
 
 
 @tool(category="file_write")

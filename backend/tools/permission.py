@@ -1,5 +1,8 @@
+import logging
 from enum import Enum
 from ..config import ToolsConfig
+
+logger = logging.getLogger(__name__)
 
 
 class PermissionLevel(Enum):
@@ -35,16 +38,19 @@ def get_permission_level(
     if category in tools_config.deny_categories:
         return PermissionLevel.DENY
 
-    if requires_confirm:
-        return PermissionLevel.ASK
+    if category in tools_config.safe_categories:
+        return PermissionLevel.AUTO
 
     if category in tools_config.ask_categories:
         return PermissionLevel.ASK
 
-    if category in tools_config.safe_categories:
-        return PermissionLevel.AUTO
+    if category not in CATEGORY_PERMISSION_MAP:
+        logger.warning(f"Unknown tool category '{category}', defaulting to AUTO")
 
-    default = CATEGORY_PERMISSION_MAP.get(category, "ask")
+    if requires_confirm:
+        return PermissionLevel.ASK
+
+    default = CATEGORY_PERMISSION_MAP.get(category, "safe")
     if default == "safe":
         return PermissionLevel.AUTO
     return PermissionLevel.ASK

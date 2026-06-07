@@ -1,5 +1,8 @@
 import asyncio
+import atexit
 import concurrent.futures
+import logging
+import time
 from functools import wraps
 from typing import Any, Callable
 
@@ -8,9 +11,27 @@ from .permission import get_permission_level, PermissionLevel
 from ..providers.base import ToolDef
 from ..config import ToolsConfig
 
+logger = logging.getLogger(__name__)
+
 
 _registry: dict[str, ToolDef] = {}
 _thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+_audit_logger = None
+
+
+def set_audit_logger(audit):
+    global _audit_logger
+    _audit_logger = audit
+
+
+def _shutdown_thread_pool():
+    try:
+        _thread_pool.shutdown(wait=False, cancel_futures=True)
+    except Exception:
+        pass
+
+
+atexit.register(_shutdown_thread_pool)
 
 
 def tool(
@@ -84,24 +105,44 @@ class ToolRegistry:
                 return {"success": False, "error": "Tool is disabled by policy", "permission": "deny"}
 
         timeout = tool_def.timeout or (tools_config.timeout if tools_config else 30)
-
+        call_id = f"call_{int(time.time() * 1000)}_{id(args)}"
+        start = time.time()
+        approved = True
+        result: dict[str, Any] = {"success": False, "error": "unreachable"}
         try:
             if asyncio.iscoroutinefunction(tool_def.handler):
-                result = await asyncio.wait_for(
+                value = await asyncio.wait_for(
                     tool_def.handler(**args),
                     timeout=timeout,
                 )
             else:
                 loop = asyncio.get_event_loop()
-                result = await asyncio.wait_for(
+                value = await asyncio.wait_for(
                     loop.run_in_executor(_thread_pool, lambda: tool_def.handler(**args)),
                     timeout=timeout,
                 )
-            return {"success": True, "output": str(result) if result is not None else ""}
+            output = "" if value is None else str(value)
+            result = {"success": True, "output": output}
+            return result
         except asyncio.TimeoutError:
-            return {"success": False, "error": f"Tool '{tool_id}' timed out after {timeout}s"}
+            result = {"success": False, "error": f"Tool '{tool_id}' timed out after {timeout}s"}
+            return result
         except Exception as e:
-            return {"success": False, "error": f"Tool '{tool_id}' error: {str(e)}"}
+            result = {"success": False, "error": f"Tool '{tool_id}' error: {str(e)}"}
+            return result
+        finally:
+            if _audit_logger is not None:
+                try:
+                    _audit_logger.log_tool_call(
+                        call_id=call_id,
+                        tool=tool_id,
+                        args=args,
+                        approved=approved,
+                        result=result,
+                        duration=time.time() - start,
+                    )
+                except Exception:
+                    pass
 
     def requires_confirmation(self, tool_id: str) -> bool:
         tool_def = self.get(tool_id)
