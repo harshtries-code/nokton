@@ -2,7 +2,7 @@
   "$schema": "https://nokton.local/config.json",
   "model": {
     "provider": "openrouter",
-    "model": "deepseek/deepseek-v4-flash:free",
+    "model": "deepseek/deepseek-chat-v3.1:free",
     "small_model": "openrouter/gpt-oss-20b:free",
     "vision_model": "openrouter/google/gemma-3-27b-it:free",
     "reasoning_effort": "high",
