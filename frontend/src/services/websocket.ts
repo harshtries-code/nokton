@@ -1,9 +1,11 @@
 import { StreamEvent } from '../types/messages';
 
+export type WSHandler = (event: StreamEvent) => void;
+
 export class NoktonWebSocket {
   private ws: WebSocket | null = null;
   private url: string;
-  private handlers: Map<string, (event: StreamEvent) => void> = new Map();
+  private handlers: Map<string, Set<WSHandler>> = new Map();
   private connected = false;
 
   constructor(url = 'ws://localhost:8765/ws') {
@@ -63,6 +65,10 @@ export class NoktonWebSocket {
     this.send({ type: 'settings_update', key, value });
   }
 
+  setApiKey(provider: string, apiKey: string) {
+    this.send({ type: 'set_api_key', provider, api_key: apiKey });
+  }
+
   confirmTool(callId: string, approved: boolean, toolName?: string, args?: Record<string, unknown>) {
     this.send({ type: 'confirm_tool', call_id: callId, approved, tool_name: toolName, args });
   }
@@ -83,16 +89,27 @@ export class NoktonWebSocket {
     this.send({ type: 'new_conversation' });
   }
 
+  loadConversation(conversationId: string) {
+    this.send({ type: 'load_conversation', conversation_id: conversationId });
+  }
+
   listConversations() {
     this.send({ type: 'list_conversations' });
   }
 
-  on(event: string, handler: (event: StreamEvent) => void) {
-    this.handlers.set(event, handler);
+  on(event: string, handler: WSHandler) {
+    if (!this.handlers.has(event)) {
+      this.handlers.set(event, new Set());
+    }
+    this.handlers.get(event)!.add(handler);
   }
 
-  off(event: string) {
-    this.handlers.delete(event);
+  off(event: string, handler?: WSHandler) {
+    if (!handler) {
+      this.handlers.delete(event);
+      return;
+    }
+    this.handlers.get(event)?.delete(handler);
   }
 
   isConnected() {
@@ -100,10 +117,18 @@ export class NoktonWebSocket {
   }
 
   private emit(type: string, event: StreamEvent) {
-    const handler = this.handlers.get(type);
-    if (handler) handler(event);
+    const handlers = this.handlers.get(type);
+    if (handlers) {
+      for (const h of handlers) {
+        try { h(event); } catch {}
+      }
+    }
 
     const wildcard = this.handlers.get('*');
-    if (wildcard) wildcard(event);
+    if (wildcard) {
+      for (const h of wildcard) {
+        try { h(event); } catch {}
+      }
+    }
   }
 }
