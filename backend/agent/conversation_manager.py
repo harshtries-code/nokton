@@ -198,3 +198,53 @@ class ConversationManager:
             prefix = "## You" if msg.role == "user" else "## Nokton"
             lines.append(f"\n{prefix}\n{msg.content}")
         return "\n".join(lines)
+
+    def set_title(self, conv_id: str, title: str) -> bool:
+        if self._current and self._current.id == conv_id:
+            self._current.title = title[:200] if title else self._current.title
+            self._current.updated_at = datetime.now().isoformat()
+        path = self._dir / f"{conv_id}.json"
+        if not path.exists():
+            return False
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            data["title"] = title[:200] if title else data.get("title", "")
+            data["updated_at"] = datetime.now().isoformat()
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            return True
+        except Exception:
+            return False
+
+    def search(self, query: str, limit: int = 20) -> list[dict]:
+        if not query or not query.strip():
+            return []
+        q = query.strip().lower()
+        results = []
+        for path in self._dir.glob("conv_*.json"):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                continue
+            title = (data.get("title") or "").lower()
+            messages_text = " ".join(
+                m.get("content", "") for m in data.get("messages", [])
+            ).lower()
+            score = 0
+            if q in title:
+                score += 10
+            if q in messages_text:
+                score += 1
+            if score == 0:
+                continue
+            results.append({
+                "id": data.get("id", path.stem),
+                "title": data.get("title", ""),
+                "message_count": len(data.get("messages", [])),
+                "updated_at": data.get("updated_at", ""),
+                "score": score,
+            })
+        results.sort(key=lambda r: (r["score"], r["updated_at"]), reverse=True)
+        return results[:limit]

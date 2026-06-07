@@ -8,7 +8,8 @@ from ..tools.registry import ToolRegistry
 from ..config import Config
 from .system_prompt import SystemPromptBuilder
 from .conversation_manager import ConversationManager
-from .context_compressor import ContextCompressor
+from .context_compressor import ContextCompressor, estimate_tokens
+from .skill_manager import SkillManager
 from .interrupt_manager import InterruptManager, InterruptError
 from .cost_tracker import CostTracker
 
@@ -33,6 +34,7 @@ class AgentEngine:
             protect_first_n=3,
             protect_last_n=config.conversation.protect_last_n,
         )
+        self._skills = SkillManager()
         self._pending_confirmations: dict[str, asyncio.Event] = {}
         self._confirmation_results: dict[str, bool] = {}
 
@@ -109,8 +111,21 @@ class AgentEngine:
 
             system_prompt = self._prompt_builder.build(
                 tool_descriptions=self._format_tool_descriptions(tools),
+                skill_descriptions=self._skills.load_all(),
             )
             messages.insert(0, Message(role="system", content=system_prompt))
+
+            max_tokens = max(2048, self._config.model.max_tokens)
+            threshold = self._config.conversation.compress_threshold
+            if self._compressor.should_compress(messages, 0, max_tokens, threshold):
+                old_count = len(messages)
+                messages = self._compressor.compress(messages)
+                if len(messages) < old_count:
+                    yield {
+                        "type": "status",
+                        "state": "thinking",
+                        "info": f"Context compressed: {old_count} -> {len(messages)} messages",
+                    }
 
             iteration = 0
             max_iterations = 10
@@ -119,15 +134,23 @@ class AgentEngine:
                 iteration += 1
                 self._interrupt.check()
 
-                provider = self._providers.get(provider_id)
+                provider, active_provider_id = self._pick_provider(provider_id)
                 if not provider:
                     yield {"type": "error", "code": "PROVIDER_ERROR", "message": f"Unknown provider: {provider_id}"}
                     return
+                if active_provider_id != provider_id:
+                    yield {
+                        "type": "status",
+                        "state": "thinking",
+                        "info": f"Primary provider '{provider_id}' unavailable; using '{active_provider_id}'",
+                    }
+                    provider_id = active_provider_id
 
                 all_text = ""
                 all_reasoning = ""
                 pending_tool_calls = []
                 chunk_count = 0
+                provider_error: str | None = None
 
                 yield {"type": "status", "state": "thinking"}
 
@@ -171,8 +194,8 @@ class AgentEngine:
                         }
 
                     elif event.type == StreamEventType.ERROR:
-                        yield {"type": "error", "code": "STREAM_ERROR", "message": event.error}
-                        return
+                        provider_error = event.error or "stream error"
+                        break
 
                     elif event.type == StreamEventType.FINISH:
                         if event.usage:
@@ -185,6 +208,19 @@ class AgentEngine:
 
                 self._interrupt.set_current_stream(None)
                 await asyncio.sleep(0)
+
+                if provider_error and not all_text and not pending_tool_calls:
+                    fallback_id = self._next_fallback(provider_id)
+                    if fallback_id and fallback_id != provider_id:
+                        yield {
+                            "type": "status",
+                            "state": "thinking",
+                            "info": f"Provider '{provider_id}' failed ({provider_error}); retrying with '{fallback_id}'",
+                        }
+                        provider_id = fallback_id
+                        continue
+                    yield {"type": "error", "code": "STREAM_ERROR", "message": provider_error}
+                    return
 
                 if pending_tool_calls and (all_text or all_reasoning):
                     self._conv_manager.add_message(
@@ -296,6 +332,7 @@ class AgentEngine:
                 pending_tool_calls = []
 
             self._conv_manager.save()
+            self._maybe_auto_title()
 
         except InterruptError:
             self._interrupt.reset()
@@ -350,3 +387,49 @@ class AgentEngine:
         for t in tools:
             lines.append(f"- {t.id}: {t.description}")
         return "\n".join(lines) if lines else "No tools available."
+
+    def _pick_provider(self, provider_id: str):
+        provider = self._providers.get(provider_id)
+        if provider is not None and self._provider_has_credentials(provider_id):
+            return provider, provider_id
+        for fb in self._config.model.fallback_providers or []:
+            if fb == provider_id:
+                continue
+            if self._providers.get(fb) is None:
+                continue
+            if not self._provider_has_credentials(fb):
+                continue
+            return self._providers.get(fb), fb
+        return provider, provider_id
+
+    def _next_fallback(self, current: str) -> str | None:
+        chain = [current] + list(self._config.model.fallback_providers or [])
+        for fb in chain[1:]:
+            if self._providers.get(fb) is None:
+                continue
+            if not self._provider_has_credentials(fb):
+                continue
+            return fb
+        return None
+
+    def _provider_has_credentials(self, provider_id: str) -> bool:
+        if not self._providers.get(provider_id):
+            return False
+        provider = self._providers.get(provider_id)
+        if not getattr(provider, "requires_api_key", True):
+            return True
+        key = self._config.get_provider_api_key(provider_id)
+        return bool(key)
+
+    def _maybe_auto_title(self) -> None:
+        conv = self._conv_manager.current
+        if not conv:
+            return
+        if conv.title and conv.title != "New conversation":
+            return
+        for msg in conv.messages:
+            if msg.role == "user" and msg.content:
+                title = msg.content.strip().splitlines()[0][:60].strip()
+                if title:
+                    self._conv_manager.set_title(conv.id, title)
+                return

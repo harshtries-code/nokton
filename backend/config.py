@@ -18,6 +18,7 @@ class ModelConfig:
     reasoning_effort: str = "high"
     temperature: float = 0.7
     max_tokens: int = 4096
+    fallback_providers: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -93,6 +94,7 @@ class Config:
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     conversation: ConversationConfig = field(default_factory=ConversationConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    _key_manager = None
 
     @classmethod
     def load(cls) -> "Config":
@@ -186,12 +188,32 @@ class Config:
                 setattr(self.providers[prov], key, value)
 
     def get_provider_api_key(self, provider_id: str) -> str:
+        if self._key_manager is not None:
+            try:
+                enc = self._key_manager.get_key(provider_id)
+                if enc:
+                    return enc
+            except Exception:
+                pass
         auth = self.providers.get(provider_id)
         return auth.api_key if auth else ""
 
     def get_provider_base_url(self, provider_id: str) -> str:
         auth = self.providers.get(provider_id)
         return auth.base_url if auth else ""
+
+    def set_key_manager(self, key_manager):
+        self._key_manager = key_manager
+
+    def set_provider_api_key(self, provider_id: str, key: str) -> None:
+        if self._key_manager is not None:
+            try:
+                self._key_manager.set_key(provider_id, key)
+            except Exception:
+                pass
+        if provider_id not in self.providers:
+            self.providers[provider_id] = ProviderAuth()
+        self.providers[provider_id].api_key = key
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -203,6 +225,7 @@ class Config:
                 "reasoning_effort": self.model.reasoning_effort,
                 "temperature": self.model.temperature,
                 "max_tokens": self.model.max_tokens,
+                "fallback_providers": list(self.model.fallback_providers or []),
             },
             "providers": {
                 pid: {
