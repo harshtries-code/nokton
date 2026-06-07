@@ -2,7 +2,7 @@ import React from 'react';
 import { MessageList } from '../Chat/MessageList';
 import { InputBar } from '../Chat/InputBar';
 
-export function MainView({ onSendMessage, onCancel }: { onSendMessage: (text: string) => void; onCancel: () => void }) {
+export function MainView({ onSendMessage, onCancel }: { onSendMessage: (text: string, images?: string[]) => void; onCancel: () => void }) {
   return (
     <div style={styles.container}>
       <MessageList />

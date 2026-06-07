@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { Message, ToolCall } from '../types/messages';
 
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  message_count: number;
+  updated_at: string;
+}
+
 interface ConversationState {
   messages: Message[];
   isStreaming: boolean;
@@ -8,6 +15,8 @@ interface ConversationState {
   streamingReasoning: string;
   agentState: string;
   pendingToolCalls: ToolCall[];
+  conversations: ConversationSummary[];
+  currentConversationId: string | null;
   addMessage: (msg: Message) => void;
   appendToLastAssistant: (text: string) => void;
   appendReasoning: (text: string) => void;
@@ -17,6 +26,9 @@ interface ConversationState {
   addPendingToolCall: (tc: ToolCall) => void;
   clearPendingToolCall: (id: string) => void;
   clearMessages: () => void;
+  setConversations: (c: ConversationSummary[]) => void;
+  setCurrentConversationId: (id: string | null) => void;
+  loadFromServer: (conv: any) => void;
 }
 
 export const useConversationStore = create<ConversationState>((set) => ({
@@ -26,6 +38,8 @@ export const useConversationStore = create<ConversationState>((set) => ({
   streamingReasoning: '',
   agentState: 'idle',
   pendingToolCalls: [],
+  conversations: [],
+  currentConversationId: null,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -34,6 +48,13 @@ export const useConversationStore = create<ConversationState>((set) => ({
     const last = msgs[msgs.length - 1];
     if (last && last.role === 'assistant') {
       msgs[msgs.length - 1] = { ...last, content: last.content + text };
+    } else {
+      msgs.push({
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: text,
+        timestamp: new Date().toISOString(),
+      });
     }
     return { messages: msgs };
   }),
@@ -61,6 +82,24 @@ export const useConversationStore = create<ConversationState>((set) => ({
 
   clearMessages: () => set({
     messages: [],
+    streamingText: '',
+    streamingReasoning: '',
+    pendingToolCalls: [],
+  }),
+
+  setConversations: (conversations) => set({ conversations }),
+
+  setCurrentConversationId: (id) => set({ currentConversationId: id }),
+
+  loadFromServer: (conv) => set({
+    currentConversationId: conv.id,
+    messages: (conv.messages || []).map((m: any) => ({
+      id: `msg_${m.timestamp || Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      role: m.role,
+      content: m.content,
+      reasoning: m.reasoning,
+      timestamp: m.timestamp,
+    })),
     streamingText: '',
     streamingReasoning: '',
     pendingToolCalls: [],
