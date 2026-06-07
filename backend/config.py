@@ -204,6 +204,13 @@ class Config:
                 "temperature": self.model.temperature,
                 "max_tokens": self.model.max_tokens,
             },
+            "providers": {
+                pid: {
+                    "api_key": auth.api_key,
+                    "base_url": auth.base_url,
+                }
+                for pid, auth in self.providers.items()
+            },
             "tools": {
                 "permissions": {
                     "safe_categories": self.tools.safe_categories,

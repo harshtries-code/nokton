@@ -15,7 +15,10 @@ def web_search(query: str, max_results: int = 5) -> str:
         results = []
         with DDGS() as ddgs:
             for i, r in enumerate(ddgs.text(query, max_results=max_results)):
-                results.append(f"{i + 1}. {r['title']}\n   {r['body'][:200]}\n   {r['href']}")
+                snippet = r.get("body", "") or ""
+                if len(snippet) > 400:
+                    snippet = snippet[:400] + "..."
+                results.append(f"{i + 1}. {r.get('title', '')}\n   {snippet}\n   {r.get('href', '')}")
         return "\n\n".join(results) if results else "No results found"
     except ImportError:
         return "Web search requires duckduckgo_search package"
@@ -24,12 +27,13 @@ def web_search(query: str, max_results: int = 5) -> str:
 
 
 @tool(category="web")
-def web_fetch(url: str) -> str:
+def web_fetch(url: str, max_lines: int = 2000) -> str:
     """Fetch and extract text content from a web page.
     Args:
         url: Full URL of the web page to fetch.
+        max_lines: Maximum number of lines to return. Defaults to 2000.
     Returns:
-        Extracted text content from the page.
+        Extracted text content from the page (truncated with marker if longer).
     """
     try:
         import requests
@@ -44,7 +48,9 @@ def web_fetch(url: str) -> str:
             tag.decompose()
         text = soup.get_text(separator="\n", strip=True)
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-        return "\n".join(lines[:200])  # Limit to 200 lines
+        if len(lines) > max_lines:
+            return "\n".join(lines[:max_lines]) + f"\n\n[... truncated, {len(lines) - max_lines} more lines omitted]"
+        return "\n".join(lines)
     except ImportError:
         return "Web fetch requires requests and beautifulsoup4 packages"
     except Exception as e:
@@ -52,10 +58,11 @@ def web_fetch(url: str) -> str:
 
 
 @tool(category="web")
-def extract_links(url: str) -> str:
+def extract_links(url: str, max_results: int = 100) -> str:
     """Extract all links from a web page.
     Args:
         url: Full URL of the web page.
+        max_results: Maximum number of links to return. Defaults to 100.
     Returns:
         List of links with their text and href attributes.
     """
@@ -74,7 +81,9 @@ def extract_links(url: str) -> str:
             href = urljoin(url, a["href"])
             text = a.get_text(strip=True)[:80]
             links.append(f"{text}: {href}" if text else href)
-        return "\n".join(links[:100])
+            if len(links) >= max_results:
+                break
+        return "\n".join(links) if links else "No links found"
     except ImportError:
         return "Link extraction requires requests and beautifulsoup4 packages"
     except Exception as e:

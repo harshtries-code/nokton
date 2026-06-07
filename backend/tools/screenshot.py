@@ -1,3 +1,6 @@
+import os
+import tempfile
+from datetime import datetime
 from .registry import tool
 
 
@@ -5,18 +8,17 @@ from .registry import tool
 def capture_screen(path: str = "") -> str:
     """Capture a screenshot of the entire screen or active window.
     Args:
-        path: Optional file path to save the screenshot. If empty, saves to a temp file.
+        path: Optional file path to save the screenshot. If empty, saves to a temp file with timestamp.
     Returns:
         Path to the saved screenshot image.
     """
     try:
         from PIL import Image
         import mss
-        import tempfile
-        import os
 
         if not path:
-            path = os.path.join(tempfile.gettempdir(), "nokton_screenshot.png")
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            path = os.path.join(tempfile.gettempdir(), f"nokton_screenshot_{ts}.png")
 
         with mss.mss() as sct:
             monitor = sct.monitors[1]
@@ -41,10 +43,9 @@ def ocr_screen() -> str:
         import pytesseract
         from PIL import Image
         import mss
-        import tempfile
-        import os
 
-        path = os.path.join(tempfile.gettempdir(), "nokton_ocr.png")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(tempfile.gettempdir(), f"nokton_ocr_{ts}.png")
         with mss.mss() as sct:
             monitor = sct.monitors[1]
             sct_img = sct.grab(monitor)
