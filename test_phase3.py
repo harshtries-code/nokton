@@ -192,6 +192,49 @@ def test_skill_manager_handles_missing_dir():
     assert sm.load_all() == ""
 
 
+def test_engine_build_messages_passes_images():
+    from backend.agent.engine import AgentEngine
+    from backend.config import Config
+    from backend.providers import registry as provider_registry
+    from backend.tools.registry import tool_registry
+    from backend.providers.base import ContentImage, ContentText
+
+    cfg = Config()
+    eng = AgentEngine(
+        provider_registry=provider_registry,
+        tool_registry=tool_registry,
+        config=cfg,
+    )
+    fake_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII="
+    msgs = eng._build_messages("describe this", [fake_b64])
+    last = msgs[-1]
+    assert last.role == "user"
+    assert isinstance(last.content, list), f"expected multimodal list, got {type(last.content)}"
+    has_image = any(isinstance(p, ContentImage) for p in last.content)
+    has_text = any(isinstance(p, ContentText) and "describe this" in p.text for p in last.content)
+    assert has_image, "ContentImage missing from multimodal user message"
+    assert has_text, "ContentText with user input missing from multimodal user message"
+
+
+def test_engine_build_messages_text_only():
+    from backend.agent.engine import AgentEngine
+    from backend.config import Config
+    from backend.providers import registry as provider_registry
+    from backend.tools.registry import tool_registry
+
+    cfg = Config()
+    eng = AgentEngine(
+        provider_registry=provider_registry,
+        tool_registry=tool_registry,
+        config=cfg,
+    )
+    msgs = eng._build_messages("hello", None)
+    last = msgs[-1]
+    assert last.role == "user"
+    assert isinstance(last.content, str), f"expected str for no-images path, got {type(last.content)}"
+    assert last.content == "hello"
+
+
 def main():
     print("=== Phase 3 smoke tests ===")
     tests = [
@@ -211,6 +254,8 @@ def main():
         test_engine_provider_has_credentials_ollama,
         test_cost_endpoints_registered,
         test_skill_manager_handles_missing_dir,
+        test_engine_build_messages_passes_images,
+        test_engine_build_messages_text_only,
     ]
     for t in tests:
         try:

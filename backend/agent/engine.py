@@ -97,15 +97,20 @@ class AgentEngine:
                         processed = process_images_for_model(
                             images, caps, provider, self._config.model.vision_model
                         )
-                        image_descriptions = [
-                            p.get("text", "") for p in processed if p.get("type") == "description"
-                        ]
+                        image_descriptions = []
+                        image_payloads = []
+                        for p in processed:
+                            if p.get("type") == "description":
+                                image_descriptions.append(p.get("text", ""))
+                            elif p.get("type") == "image":
+                                image_payloads.append(p.get("base64", ""))
                         if image_descriptions:
                             user_input = user_input + "\n\n" + "\n".join(image_descriptions)
                 except Exception as e:
                     yield {"type": "status", "state": "thinking", "warning": f"Image processing failed: {e}"}
 
-            messages = self._build_messages(user_input, None)
+            images_for_build = image_payloads if image_payloads else None
+            messages = self._build_messages(user_input, images_for_build)
             tools = self._tools.list_tools(self._config.tools)
             tool_schemas = [t.to_schema() for t in tools]
 
