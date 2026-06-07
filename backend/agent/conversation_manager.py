@@ -75,7 +75,9 @@ class ConversationManager:
 
     def add_message(self, role: str, content: str, reasoning: str = "", tool_calls: list[dict] | None = None):
         if not self._current:
-            self.create()
+            raise RuntimeError(
+                "No active conversation; call create() or set_current() before add_message()"
+            )
 
         msg = MessageRecord(
             role=role,
@@ -96,6 +98,24 @@ class ConversationManager:
             ]
         self._current.messages.append(msg)
         self._current.updated_at = datetime.now().isoformat()
+
+    def add_tool_result(self, call_id: str, tool_name: str, args: dict, result: str, duration_ms: int):
+        if not self._current:
+            return
+        for msg in reversed(self._current.messages):
+            if msg.role == "assistant":
+                for tc in msg.tool_calls:
+                    if tc.id == call_id:
+                        tc.result = result
+                        tc.duration_ms = duration_ms
+                        return
+        self.add_message("tool", result, tool_calls=[{
+            "id": call_id,
+            "name": tool_name,
+            "args": args,
+            "result": result,
+            "duration_ms": duration_ms,
+        }])
 
     def save(self):
         if not self._current:

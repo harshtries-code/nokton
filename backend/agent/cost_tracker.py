@@ -20,6 +20,7 @@ class CostTracker:
         self.session_input = 0
         self.session_output = 0
         self.session_reasoning = 0
+        self.session_cost: float = 0.0
         self.total_input = 0
         self.total_output = 0
         self.total_cost = 0.0
@@ -27,10 +28,9 @@ class CostTracker:
 
     def add_usage(self, provider: str, model: str, input_tokens: int, output_tokens: int, reasoning_tokens: int = 0):
         pricing = None
-        if self._catalog:
-            info = self._catalog.find_model(model)
-            if info and info.pricing:
-                pricing = info.pricing
+        info = self._catalog.find_model(model)
+        if info and info.pricing:
+            pricing = info.pricing
 
         cost = 0.0
         if pricing and not pricing.is_free:
@@ -42,6 +42,7 @@ class CostTracker:
         self.session_input += input_tokens
         self.session_output += output_tokens
         self.session_reasoning += reasoning_tokens
+        self.session_cost += cost
         self.total_input += input_tokens
         self.total_output += output_tokens
         self.total_cost += cost
@@ -73,12 +74,9 @@ class CostTracker:
             "cost_usd": round(self.total_cost, 6),
         }
 
-    @property
-    def session_cost(self) -> float:
-        return sum(r.cost_usd for r in self._history)
-
     def reset_session(self):
         self.session_input = 0
         self.session_output = 0
         self.session_reasoning = 0
+        self.session_cost = 0.0
         self._history.clear()
