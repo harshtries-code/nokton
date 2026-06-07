@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { MessageBubble } from './MessageBubble';
+import { ToolConfirmationOverlay } from './ToolConfirmationOverlay';
 import { useConversationStore } from '../../stores/conversationStore';
 
 export function MessageList() {
@@ -25,6 +26,7 @@ export function MessageList() {
       {messages.map((msg) => (
         <MessageBubble key={msg.id} message={msg} />
       ))}
+      <ToolConfirmationOverlay />
       <div ref={bottomRef} />
     </div>
   );

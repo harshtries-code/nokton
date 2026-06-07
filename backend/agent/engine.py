@@ -33,6 +33,8 @@ class AgentEngine:
             protect_first_n=3,
             protect_last_n=config.conversation.protect_last_n,
         )
+        self._pending_confirmations: dict[str, asyncio.Event] = {}
+        self._confirmation_results: dict[str, bool] = {}
 
     @property
     def interrupt(self) -> InterruptManager:
@@ -41,6 +43,23 @@ class AgentEngine:
     @property
     def conversation(self) -> ConversationManager:
         return self._conv_manager
+
+    def confirm_tool(self, call_id: str, approved: bool):
+        """Called from WebSocket handler when user confirms/denies a tool."""
+        if call_id in self._pending_confirmations:
+            self._confirmation_results[call_id] = approved
+            self._pending_confirmations[call_id].set()
+
+    async def _wait_for_confirmation(self, call_id: str) -> bool:
+        """Wait for user confirmation on a tool call. Returns True if approved."""
+        event = asyncio.Event()
+        self._pending_confirmations[call_id] = event
+        try:
+            await event.wait()
+            return self._confirmation_results.get(call_id, False)
+        finally:
+            self._pending_confirmations.pop(call_id, None)
+            self._confirmation_results.pop(call_id, None)
 
     async def run_conversation(
         self,
@@ -152,12 +171,31 @@ class AgentEngine:
                     self._interrupt.check()
                     tool_start = time.time()
 
-                    yield {
-                        "type": "tool_call_start",
-                        "id": tc["id"],
-                        "name": tc["name"],
-                        "args": tc["args"],
-                    }
+                    requires_confirm = self._tools.requires_confirmation(tc["name"])
+                    if requires_confirm:
+                        yield {
+                            "type": "tool_call",
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "args": tc["args"],
+                            "requires_confirm": True,
+                        }
+                        approved = await self._wait_for_confirmation(tc["id"])
+                        if not approved:
+                            yield {
+                                "type": "tool_error",
+                                "id": tc["id"],
+                                "error": "Tool call denied by user",
+                                "duration_ms": 0,
+                            }
+                            continue
+                    else:
+                        yield {
+                            "type": "tool_call_start",
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "args": tc["args"],
+                        }
 
                     result = await self._tools.execute(
                         tc["name"],

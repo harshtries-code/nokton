@@ -226,15 +226,7 @@ async def websocket_endpoint(ws: WebSocket):
             elif msg_type == "confirm_tool":
                 call_id = data.get("call_id", "")
                 approved = data.get("approved", False)
-                tool_name = data.get("tool_name", "")
-                if approved and tool_name:
-                    result = await tool_registry.execute(tool_name, data.get("args", {}), config.tools)
-                    await ws.send_json({
-                        "type": "tool_result",
-                        "id": call_id,
-                        "output": result.get("output", ""),
-                        "success": result["success"],
-                    })
+                engine.confirm_tool(call_id, approved)
 
             elif msg_type == "set_model":
                 if data.get("provider"):
