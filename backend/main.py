@@ -14,6 +14,7 @@ from .agent.engine import AgentEngine
 from .agent.conversation_manager import ConversationManager
 from .agent.cost_tracker import CostTracker
 from .util.audit_logger import AuditLogger
+from .util.api_key_manager import ApiKeyManager
 from .providers.model_catalog import ModelCatalog
 from .voice.pipeline import VoicePipeline
 
@@ -27,6 +28,8 @@ catalog.load_cache()
 cost_tracker = CostTracker(catalog=catalog)
 audit_logger = AuditLogger()
 set_audit_logger(audit_logger)
+api_key_manager = ApiKeyManager()
+config.set_key_manager(api_key_manager)
 engine = AgentEngine(
     provider_registry=provider_registry,
     tool_registry=tool_registry,
@@ -277,9 +280,7 @@ async def set_api_key(req: SetApiKeyRequest):
     valid_ids = [p["id"] for p in provider_registry.list_providers()]
     if valid_ids and req.provider not in valid_ids:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {req.provider}")
-    if req.provider not in config.providers:
-        config.providers[req.provider] = ProviderAuth()
-    config.providers[req.provider].api_key = req.api_key
+    config.set_provider_api_key(req.provider, req.api_key)
     config.save()
     return {"ok": True, "provider": req.provider}
 
@@ -333,6 +334,35 @@ async def export_conversation(conv_id: str, fmt: str = "json"):
     if not data:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"data": data}
+
+
+@app.get("/api/conversations-search")
+async def search_conversations(q: str = "", limit: int = 20):
+    if not q.strip():
+        return {"results": []}
+    return {"results": conversation_manager.search(q, limit=limit)}
+
+
+@app.patch("/api/conversations/{conv_id}/title")
+async def rename_conversation(conv_id: str, title: str = ""):
+    success = conversation_manager.set_title(conv_id, title)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"id": conv_id, "title": title}
+
+
+@app.get("/api/cost")
+async def get_cost():
+    return {
+        "session": cost_tracker.get_session_summary(),
+        "total": cost_tracker.get_total_summary(),
+    }
+
+
+@app.post("/api/cost/reset")
+async def reset_session_cost():
+    cost_tracker.reset_session()
+    return {"reset": True, "session": cost_tracker.get_session_summary()}
 
 
 # WebSocket endpoint
