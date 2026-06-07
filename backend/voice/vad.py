@@ -16,38 +16,52 @@ class VoiceActivityDetector:
             self._loaded = True
         except ImportError:
             self._loaded = False
+        except Exception:
+            self._loaded = False
 
     def is_speech(self, audio_frame: np.ndarray) -> bool:
         if not self._loaded:
             return self._energy_vad(audio_frame)
         try:
             import silero_vad
-            return silero_vad.get_speech_timestamps(
+            return bool(silero_vad.get_speech_timestamps(
                 audio_frame, self._model,
                 threshold=self._threshold,
-                return_seconds=True,
-            )
+            ))
         except Exception:
             return self._energy_vad(audio_frame)
 
-    def _energy_vad(self, audio: np.ndarray) -> bool:
-        energy = np.sqrt(np.mean(audio ** 2))
-        return energy > self._threshold
-
-    def detect_speech_segment(self, audio: np.ndarray) -> tuple[int, int]:
+    def get_speech_timestamps(self, audio: np.ndarray, return_seconds: bool = True) -> list[dict]:
         if not self._loaded:
-            return (0, len(audio))
+            return self._energy_timestamps(audio)
         try:
             import silero_vad
-            timestamps = silero_vad.get_speech_timestamps(
+            return silero_vad.get_speech_timestamps(
                 audio, self._model,
                 threshold=self._threshold,
-                return_seconds=True,
+                return_seconds=return_seconds,
             )
-            if timestamps:
-                start = int(timestamps[0]["start"] * self._sample_rate)
-                end = int(timestamps[-1]["end"] * self._sample_rate)
-                return (start, min(end + self._silence_samples, len(audio)))
         except Exception:
-            pass
+            return self._energy_timestamps(audio)
+
+    def detect_speech_segment(self, audio: np.ndarray) -> tuple[int, int]:
+        timestamps = self.get_speech_timestamps(audio, return_seconds=False)
+        if timestamps:
+            start = int(timestamps[0]["start"])
+            end = int(timestamps[-1]["end"])
+            return (start, min(end + self._silence_samples, len(audio)))
         return (0, len(audio))
+
+    def _energy_vad(self, audio: np.ndarray) -> bool:
+        energy = self._energy(audio)
+        return energy > self._threshold
+
+    def _energy_timestamps(self, audio: np.ndarray) -> list[dict]:
+        energy = self._energy(audio)
+        if energy > self._threshold:
+            return [{"start": 0, "end": len(audio)}]
+        return []
+
+    def _energy(self, audio: np.ndarray) -> float:
+        a = audio.astype(np.float32) if audio.dtype != np.float32 else audio
+        return float(np.sqrt(np.mean(a ** 2)))
