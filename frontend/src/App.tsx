@@ -4,6 +4,7 @@ import { MainView } from './components/Layout/MainView';
 import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { VoiceIndicator } from './components/Voice/VoiceIndicator';
 import { MicButton } from './components/Voice/MicButton';
+import { CostBadge } from './components/Layout/CostBadge';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useConversation } from './hooks/useConversation';
 import { useVoice } from './hooks/useVoice';
@@ -24,6 +25,7 @@ export default function App() {
       />
       <div style={styles.main}>
         <div style={styles.topBar}>
+          <CostBadge />
           <VoiceIndicator />
           <MicButton onToggle={toggleWake} />
         </div>

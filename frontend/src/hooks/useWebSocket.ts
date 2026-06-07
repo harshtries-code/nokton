@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { NoktonWebSocket, WSHandler } from '../services/websocket';
 import { useConversationStore } from '../stores/conversationStore';
 import { useVoiceStore } from '../stores/voiceStore';
+import { useCostStore } from '../stores/costStore';
 import { Message } from '../types/messages';
 
 let wsInstance: NoktonWebSocket | null = null;
@@ -48,6 +49,13 @@ function registerGlobalHandlers(ws: NoktonWebSocket) {
     s.setStreaming(false);
     s.setStreamingText('');
     s.setAgentState('idle');
+    fetch('/api/cost')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && data.session) useCostStore.getState().setSession(data.session);
+        if (data && data.total) useCostStore.getState().setTotal(data.total);
+      })
+      .catch(() => {});
   });
 
   ws.on('tool_call', (event) => {
