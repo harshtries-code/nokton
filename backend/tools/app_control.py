@@ -1,5 +1,6 @@
 import subprocess
 import psutil
+import shlex
 from .registry import tool
 
 
@@ -12,8 +13,14 @@ def launch_app(name_or_path: str) -> str:
         Confirmation message.
     """
     try:
-        subprocess.Popen(name_or_path, shell=True)
+        if " " in name_or_path or any(c in name_or_path for c in "|&;<>()$`\\\"'"):
+            cmd = shlex.split(name_or_path, posix=False)
+        else:
+            cmd = [name_or_path]
+        subprocess.Popen(cmd, shell=False)
         return f"Launched: {name_or_path}"
+    except FileNotFoundError:
+        return f"Error: '{name_or_path}' not found on PATH"
     except Exception as e:
         return f"Error launching '{name_or_path}': {e}"
 

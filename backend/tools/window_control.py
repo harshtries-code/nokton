@@ -64,20 +64,20 @@ def minimize_window(title: str) -> str:
 
 @tool(category="system_write")
 def maximize_window(title: str) -> str:
-        """Maximize a window by title substring match.
-        Args:
-            title: Window title text to search for.
-        Returns:
-            Confirmation message.
-        """
-        try:
-            import pygetwindow as gw
-            windows = gw.getWindowsWithTitle(title)
-            if not windows:
-                return f"No window found matching '{title}'"
-            windows[0].maximize()
-            return f"Maximized: {windows[0].title}"
-        except ImportError:
-            return "Window maximize requires pygetwindow package"
-        except Exception as e:
-            return f"Window maximize error: {e}"
+    """Maximize a window by title substring match.
+    Args:
+        title: Window title text to search for.
+    Returns:
+        Confirmation message.
+    """
+    try:
+        import pygetwindow as gw
+        windows = gw.getWindowsWithTitle(title)
+        if not windows:
+            return f"No window found matching '{title}'"
+        windows[0].maximize()
+        return f"Maximized: {windows[0].title}"
+    except ImportError:
+        return "Window maximize requires pygetwindow package"
+    except Exception as e:
+        return f"Window maximize error: {e}"

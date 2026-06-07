@@ -1,3 +1,4 @@
+import subprocess
 import psutil
 import platform
 from .registry import tool
@@ -100,8 +101,9 @@ def shutdown(delay_seconds: int = 60) -> str:
         Confirmation message.
     """
     try:
-        subprocess.run(["shutdown", "/s", "/t", str(delay_seconds)], check=True)
-        return f"Shutdown scheduled in {delay_seconds} seconds"
+        delay = max(0, min(int(delay_seconds), 3600))
+        subprocess.run(["shutdown", "/s", "/t", str(delay)], check=True)
+        return f"Shutdown scheduled in {delay} seconds"
     except Exception as e:
         return f"Error initiating shutdown: {e}"
 
@@ -115,8 +117,9 @@ def restart(delay_seconds: int = 60) -> str:
         Confirmation message.
     """
     try:
-        subprocess.run(["shutdown", "/r", "/t", str(delay_seconds)], check=True)
-        return f"Restart scheduled in {delay_seconds} seconds"
+        delay = max(0, min(int(delay_seconds), 3600))
+        subprocess.run(["shutdown", "/r", "/t", str(delay)], check=True)
+        return f"Restart scheduled in {delay} seconds"
     except Exception as e:
         return f"Error initiating restart: {e}"
 
