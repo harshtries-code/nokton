@@ -37,10 +37,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   load: async () => {
     try {
-      const api = (window as any).noktonAPI;
-      if (api) {
-        const data = await api.getSettings();
-        if (data) set({ settings: data });
+      const resp = await fetch('/api/settings');
+      if (resp.ok) {
+        const data = await resp.json();
+        set({ settings: { ...DEFAULT_SETTINGS, ...data } });
       }
     } catch {}
   },

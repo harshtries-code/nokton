@@ -93,13 +93,23 @@ export const useConversationStore = create<ConversationState>((set) => ({
 
   loadFromServer: (conv) => set({
     currentConversationId: conv.id,
-    messages: (conv.messages || []).map((m: any) => ({
-      id: `msg_${m.timestamp || Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      role: m.role,
-      content: m.content,
-      reasoning: m.reasoning,
-      timestamp: m.timestamp,
-    })),
+    messages: (conv.messages || []).map((m: any) => {
+      let content = m.content;
+      if (Array.isArray(content)) {
+        content = content
+          .map((p: any) => (typeof p === 'string' ? p : p?.text || ''))
+          .filter(Boolean)
+          .join(' ');
+      }
+      return {
+        id: `msg_${m.timestamp || Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        role: m.role,
+        content: content || '',
+        reasoning: m.reasoning,
+        timestamp: m.timestamp,
+        tool_calls: Array.isArray(m.tool_calls) ? m.tool_calls : undefined,
+      };
+    }),
     streamingText: '',
     streamingReasoning: '',
     pendingToolCalls: [],

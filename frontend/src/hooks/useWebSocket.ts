@@ -67,6 +67,15 @@ function registerGlobalHandlers(ws: NoktonWebSocket) {
     });
   });
 
+  ws.on('tool_call_start', (event: any) => {
+    useConversationStore.getState().addPendingToolCall({
+      id: event.id || '',
+      name: event.name || '',
+      args: event.args || {},
+      requires_confirm: false,
+    });
+  });
+
   ws.on('tool_result', (event) => {
     useConversationStore.getState().clearPendingToolCall(event.id || '');
   });
