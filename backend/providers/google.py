@@ -1,4 +1,5 @@
-from .base import LLMProvider, ModelInfo, ModelCapabilities, StreamEvent, StreamEventType, Message
+import json
+from .base import LLMProvider, ModelInfo, ModelCapabilities, StreamEvent, StreamEventType, Message, ToolDef, ContentText, ContentImage
 
 
 class GoogleProvider(LLMProvider):
@@ -18,44 +19,147 @@ class GoogleProvider(LLMProvider):
 
     def stream_chat(self, model, messages, tools=None, tool_choice="auto", reasoning_effort=None, max_tokens=None, temperature=None, stop=None):
         try:
-            import google.generativeai as genai
+            from google import genai
+            from google.genai import types as genai_types
         except ImportError:
-            yield StreamEvent(type=StreamEventType.ERROR, error="google-generativeai package not installed")
+            yield StreamEvent(type=StreamEventType.ERROR, error="google-genai package not installed")
             return
 
-        genai.configure(api_key=self.api_key)
-        gen_model = genai.GenerativeModel(model)
+        try:
+            client = genai.Client(api_key=self.api_key)
+        except Exception as e:
+            yield StreamEvent(type=StreamEventType.ERROR, error=f"google-genai client init failed: {e}")
+            return
 
-        converted = []
+        system_text_parts = []
+        contents = []
         for m in messages:
             if m.role == "system":
-                converted.append({"role": "user", "parts": [m.content if isinstance(m.content, str) else str(m.content)]})
-                converted.append({"role": "model", "parts": ["Understood. I will follow these instructions."]})
-            else:
-                role = "model" if m.role == "assistant" else "user"
                 if isinstance(m.content, list):
-                    parts = []
-                    for part in m.content:
-                        if part.type == "text":
-                            parts.append(part.text)
-                        elif part.type == "image":
-                            parts.append(part.base64)
-                    converted.append({"role": role, "parts": parts})
+                    for p in m.content:
+                        if isinstance(p, ContentText):
+                            system_text_parts.append(p.text)
                 else:
-                    converted.append({"role": role, "parts": [m.content]})
+                    system_text_parts.append(m.content)
+                continue
+            role = "model" if m.role == "assistant" else "user"
+            if m.role == "tool":
+                role = "user"
+            if isinstance(m.content, list):
+                parts = []
+                for p in m.content:
+                    if isinstance(p, ContentText):
+                        parts.append({"text": p.text})
+                    elif isinstance(p, ContentImage):
+                        parts.append({
+                            "inline_data": {
+                                "mime_type": p.mime_type,
+                                "data": p.base64,
+                            }
+                        })
+            else:
+                parts = [{"text": str(m.content) if m.content is not None else ""}]
+            contents.append({"role": role, "parts": parts})
+
+        config_dict = {}
+        if max_tokens is not None:
+            config_dict["max_output_tokens"] = int(max_tokens)
+        if temperature is not None:
+            config_dict["temperature"] = float(temperature)
+        if system_text_parts:
+            config_dict["system_instruction"] = "\n".join(system_text_parts)
+        if tools:
+            function_decls = []
+            for t in tools:
+                function_decls.append({
+                    "name": t.id,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                })
+            config_dict["tools"] = [{"function_declarations": function_decls}]
 
         try:
-            response = gen_model.generate_content(
-                converted,
-                stream=True,
-                generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=max_tokens or 8192,
-                    temperature=temperature or 0.7,
-                ),
+            gen_config = genai_types.GenerateContentConfig(**config_dict) if config_dict else None
+        except Exception as e:
+            yield StreamEvent(type=StreamEventType.ERROR, error=f"google-genai config error: {e}")
+            return
+
+        try:
+            response = client.models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=gen_config,
             )
             for chunk in response:
-                if chunk.text:
-                    yield StreamEvent(type=StreamEventType.TEXT_DELTA, text=chunk.text)
+                text = self._extract_text(chunk)
+                if text:
+                    yield StreamEvent(type=StreamEventType.TEXT_DELTA, text=text)
+                for tc_id, tc_name, tc_args in self._extract_tool_calls(chunk):
+                    yield StreamEvent(
+                        type=StreamEventType.TOOL_CALL,
+                        tool_call_id=tc_id,
+                        tool_name=tc_name,
+                        tool_args=tc_args,
+                    )
+                usage = self._extract_usage(chunk)
+                if usage:
+                    yield StreamEvent(type=StreamEventType.FINISH, finish_reason="stop", usage=usage)
+                    return
             yield StreamEvent(type=StreamEventType.FINISH, finish_reason="stop")
         except Exception as e:
             yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
+
+    def _extract_text(self, chunk) -> str:
+        try:
+            candidates = getattr(chunk, "candidates", None) or []
+            for cand in candidates:
+                content = getattr(cand, "content", None)
+                if not content:
+                    continue
+                parts = getattr(content, "parts", None) or []
+                texts = []
+                for p in parts:
+                    t = getattr(p, "text", None)
+                    if t:
+                        texts.append(t)
+                if texts:
+                    return "".join(texts)
+        except Exception:
+            pass
+        return ""
+
+    def _extract_tool_calls(self, chunk) -> list[tuple[str, str, dict]]:
+        out = []
+        try:
+            candidates = getattr(chunk, "candidates", None) or []
+            for cand in candidates:
+                content = getattr(cand, "content", None)
+                if not content:
+                    continue
+                parts = getattr(content, "parts", None) or []
+                for p in parts:
+                    fc = getattr(p, "function_call", None)
+                    if fc:
+                        name = getattr(fc, "name", "") or ""
+                        args = getattr(fc, "args", None)
+                        if args is None:
+                            args = {}
+                        elif not isinstance(args, dict):
+                            try:
+                                args = json.loads(str(args))
+                            except Exception:
+                                args = {"_raw": str(args)}
+                        out.append((f"call_{len(out)}", name, args))
+        except Exception:
+            pass
+        return out
+
+    def _extract_usage(self, chunk) -> dict | None:
+        meta = getattr(chunk, "usage_metadata", None)
+        if not meta:
+            return None
+        return {
+            "input": getattr(meta, "prompt_token_count", 0) or 0,
+            "output": getattr(meta, "candidates_token_count", 0) or 0,
+            "reasoning": getattr(meta, "thoughts_token_count", 0) or 0,
+        }
