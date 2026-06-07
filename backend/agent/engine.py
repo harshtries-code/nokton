@@ -55,8 +55,10 @@ class AgentEngine:
         event = asyncio.Event()
         self._pending_confirmations[call_id] = event
         try:
-            await event.wait()
+            await asyncio.wait_for(event.wait(), timeout=120.0)
             return self._confirmation_results.get(call_id, False)
+        except asyncio.TimeoutError:
+            return False
         finally:
             self._pending_confirmations.pop(call_id, None)
             self._confirmation_results.pop(call_id, None)
@@ -80,7 +82,28 @@ class AgentEngine:
                     reasoning_effort=self._config.model.reasoning_effort,
                 )
 
-            messages = self._build_messages(user_input, images)
+            if images:
+                try:
+                    from ..util.image_handler import process_images_for_model
+                    provider = self._providers.get(provider_id)
+                    if provider:
+                        info = provider.get_model_info(model) if hasattr(provider, "get_model_info") else None
+                        caps = info.capabilities if info else None
+                        from ..providers.base import ModelCapabilities
+                        if caps is None:
+                            caps = ModelCapabilities(vision=False)
+                        processed = process_images_for_model(
+                            images, caps, provider, self._config.model.vision_model
+                        )
+                        image_descriptions = [
+                            p.get("text", "") for p in processed if p.get("type") == "description"
+                        ]
+                        if image_descriptions:
+                            user_input = user_input + "\n\n" + "\n".join(image_descriptions)
+                except Exception as e:
+                    yield {"type": "status", "state": "thinking", "warning": f"Image processing failed: {e}"}
+
+            messages = self._build_messages(user_input, None)
             tools = self._tools.list_tools(self._config.tools)
             tool_schemas = [t.to_schema() for t in tools]
 
@@ -104,6 +127,7 @@ class AgentEngine:
                 all_text = ""
                 all_reasoning = ""
                 pending_tool_calls = []
+                chunk_count = 0
 
                 yield {"type": "status", "state": "thinking"}
 
@@ -120,6 +144,9 @@ class AgentEngine:
 
                 for event in stream:
                     self._interrupt.check()
+                    chunk_count += 1
+                    if chunk_count % 16 == 0:
+                        await asyncio.sleep(0)
 
                     if event.type == StreamEventType.TEXT_DELTA:
                         all_text += event.text
@@ -157,8 +184,22 @@ class AgentEngine:
                             )
 
                 self._interrupt.set_current_stream(None)
+                await asyncio.sleep(0)
 
-                if all_text:
+                if pending_tool_calls and (all_text or all_reasoning):
+                    self._conv_manager.add_message(
+                        "assistant",
+                        all_text,
+                        reasoning=all_reasoning,
+                        tool_calls=[{
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "args": tc["args"],
+                            "result": "",
+                            "duration_ms": 0,
+                        } for tc in pending_tool_calls],
+                    )
+                elif all_text or all_reasoning:
                     self._conv_manager.add_message("assistant", all_text, reasoning=all_reasoning)
 
                 if not pending_tool_calls:
@@ -166,6 +207,23 @@ class AgentEngine:
                     break
 
                 yield {"type": "status", "state": "executing_tool"}
+
+                assistant_tool_calls_payload = [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": str(tc["args"]),
+                        },
+                    }
+                    for tc in pending_tool_calls
+                ]
+                messages.append(Message(
+                    role="assistant",
+                    content=all_text or "",
+                    tool_calls=assistant_tool_calls_payload,
+                ))
 
                 for tc in pending_tool_calls:
                     self._interrupt.check()
@@ -188,6 +246,11 @@ class AgentEngine:
                                 "error": "Tool call denied by user",
                                 "duration_ms": 0,
                             }
+                            messages.append(Message(
+                                role="tool",
+                                tool_call_id=tc["id"],
+                                content="Tool call denied by user",
+                            ))
                             continue
                     else:
                         yield {
@@ -204,30 +267,29 @@ class AgentEngine:
                     )
 
                     duration_ms = int((time.time() - tool_start) * 1000)
+                    output_text = (result.get("output") or "") if result.get("success") else (result.get("error") or "")
 
-                    messages.append(Message(
-                        role="assistant",
-                        content=all_text,
-                        tool_calls=[{"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": str(tc["args"])}}],
-                    ))
                     messages.append(Message(
                         role="tool",
                         tool_call_id=tc["id"],
-                        content=result.get("output", "") if result["success"] else result.get("error", ""),
+                        content=output_text,
                     ))
+                    self._conv_manager.add_tool_result(
+                        tc["id"], tc["name"], tc["args"], output_text, duration_ms,
+                    )
 
-                    if result["success"]:
+                    if result.get("success"):
                         yield {
                             "type": "tool_result",
                             "id": tc["id"],
-                            "output": result["output"],
+                            "output": result.get("output", ""),
                             "duration_ms": duration_ms,
                         }
                     else:
                         yield {
                             "type": "tool_error",
                             "id": tc["id"],
-                            "error": result["error"],
+                            "error": result.get("error", ""),
                             "duration_ms": duration_ms,
                         }
 
@@ -243,6 +305,9 @@ class AgentEngine:
             yield {"type": "error", "code": "AGENT_ERROR", "message": str(e)}
 
         finally:
+            self._interrupt.set_current_stream(None)
+            self._pending_confirmations.clear()
+            self._confirmation_results.clear()
             yield {"type": "status", "state": "idle"}
 
     def _build_messages(self, user_input: str, images: list[str] | None) -> list[Message]:
@@ -250,7 +315,24 @@ class AgentEngine:
 
         if self._conv_manager.current:
             for msg in self._conv_manager.current.messages:
-                messages.append(Message(role=msg.role, content=msg.content))
+                tool_calls_payload = None
+                if msg.tool_calls:
+                    tool_calls_payload = [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": str(tc.args),
+                            },
+                        }
+                        for tc in msg.tool_calls
+                    ]
+                messages.append(Message(
+                    role=msg.role,
+                    content=msg.content,
+                    tool_calls=tool_calls_payload,
+                ))
 
         if images:
             from ..providers.base import ContentText, ContentImage
