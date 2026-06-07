@@ -15,6 +15,7 @@ from .agent.conversation_manager import ConversationManager
 from .agent.cost_tracker import CostTracker
 from .util.audit_logger import AuditLogger
 from .providers.model_catalog import ModelCatalog
+from .voice.pipeline import VoicePipeline
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nokton")
@@ -33,20 +34,79 @@ engine = AgentEngine(
     conversation_manager=conversation_manager,
     cost_tracker=cost_tracker,
 )
+voice_pipeline: VoicePipeline | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global voice_pipeline
     logger.info("Nokton backend starting...")
     provider_registry.refresh_models()
     logger.info("Model catalog refreshed")
+    voice_pipeline = VoicePipeline(config.voice)
+    voice_pipeline.set_callbacks(
+        on_state=_broadcast_voice_state,
+        on_transcript=_handle_voice_transcript,
+    )
     yield
     logger.info("Nokton backend shutting down")
+    try:
+        if voice_pipeline:
+            voice_pipeline.stop()
+    except Exception:
+        pass
     try:
         from .tools.registry import _shutdown_thread_pool
         _shutdown_thread_pool()
     except Exception:
         pass
+
+
+_active_voice_sockets: set = set()
+
+
+def _broadcast_voice_state(state: str) -> None:
+    for ws in list(_active_voice_sockets):
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    ws.send_json({"type": "voice_event", "state": state}), loop,
+                )
+        except Exception:
+            pass
+
+
+async def _handle_voice_transcript(text: str) -> None:
+    if not text or not text.strip():
+        return
+    if not conversation_manager.current:
+        conversation_manager.create(
+            provider=config.model.provider,
+            model=config.model.model,
+            reasoning_effort=config.model.reasoning_effort,
+        )
+    conversation_manager.add_message("user", text)
+    _broadcast_voice_state("thinking")
+    full_response = ""
+    try:
+        async for event in engine.run_conversation(text, []):
+            evt_type = event.get("type") if isinstance(event, dict) else None
+            if evt_type == "assistant_delta":
+                full_response += event.get("text", "")
+            elif evt_type == "assistant_done":
+                if voice_pipeline and full_response.strip():
+                    voice_pipeline.speak(full_response)
+                _broadcast_voice_state("speaking")
+            for ws in list(_active_voice_sockets):
+                try:
+                    await ws.send_json(event)
+                except Exception:
+                    pass
+        _broadcast_voice_state("listening")
+    except Exception as e:
+        logger.error(f"voice conversation error: {e}")
+        _broadcast_voice_state("error")
 
 
 app = FastAPI(title="Nokton", version="0.1.0", lifespan=lifespan)
@@ -281,6 +341,12 @@ async def export_conversation(conv_id: str, fmt: str = "json"):
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     logger.info("WebSocket client connected")
+    _active_voice_sockets.add(ws)
+    if voice_pipeline is not None:
+        try:
+            voice_pipeline.bind_loop(asyncio.get_event_loop())
+        except Exception:
+            pass
 
     agent_task: asyncio.Task | None = None
     send_lock = asyncio.Lock()
@@ -406,9 +472,18 @@ async def websocket_endpoint(ws: WebSocket):
                 await ws.send_json({"type": "models_list", "providers": result})
 
             elif msg_type == "voice_toggle":
-                enabled = data.get("enabled", False)
+                enabled = bool(data.get("enabled", False))
                 config.voice.wake_word.enabled = enabled
                 config.save()
+                if voice_pipeline is not None:
+                    try:
+                        voice_pipeline.bind_loop(asyncio.get_event_loop())
+                    except Exception:
+                        pass
+                    if enabled:
+                        voice_pipeline.start()
+                    else:
+                        voice_pipeline.stop()
                 await ws.send_json({
                     "type": "voice_event",
                     "state": "idle" if not enabled else "listening",
@@ -466,11 +541,13 @@ async def websocket_endpoint(ws: WebSocket):
 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
+        _active_voice_sockets.discard(ws)
         engine.interrupt.cancel()
         if agent_task is not None and not agent_task.done():
             agent_task.cancel()
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
+        _active_voice_sockets.discard(ws)
         try:
             await _send({"type": "error", "code": "WS_ERROR", "message": str(e)})
         except Exception:
