@@ -121,6 +121,7 @@ async def update_settings(update: SettingsUpdate):
         config.model.reasoning_effort = update.reasoning_effort
     if update.temperature is not None:
         config.model.temperature = update.temperature
+    config.save()
     return config.to_dict()
 
 
@@ -221,6 +222,7 @@ async def websocket_endpoint(ws: WebSocket):
                 value = data.get("value")
                 if hasattr(config.model, key):
                     setattr(config.model, key, value)
+                config.save()
                 await ws.send_json({"type": "settings", **config.to_dict()})
 
             elif msg_type == "confirm_tool":
@@ -235,6 +237,7 @@ async def websocket_endpoint(ws: WebSocket):
                     config.model.model = data["model"]
                 if data.get("reasoning_effort"):
                     config.model.reasoning_effort = data["reasoning_effort"]
+                config.save()
                 await ws.send_json({"type": "model_updated", **config.model.__dict__})
 
             elif msg_type == "get_models":
@@ -252,6 +255,7 @@ async def websocket_endpoint(ws: WebSocket):
             elif msg_type == "voice_toggle":
                 enabled = data.get("enabled", False)
                 config.voice.wake_word.enabled = enabled
+                config.save()
                 await ws.send_json({
                     "type": "voice_event",
                     "state": "idle" if not enabled else "listening",

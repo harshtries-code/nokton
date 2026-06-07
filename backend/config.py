@@ -246,6 +246,11 @@ class Config:
             },
         }
 
+    def save(self):
+        USER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(USER_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, indent=2)
+
 
 def _load_json_file(path: Path) -> dict | None:
     try:
