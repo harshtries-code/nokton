@@ -84,3 +84,19 @@ class OpenAIProvider(LLMProvider):
                 if chunk.usage:
                     usage = {"input": chunk.usage.prompt_tokens, "output": chunk.usage.completion_tokens, "total": chunk.usage.total_tokens}
                 yield StreamEvent(type=StreamEventType.FINISH, finish_reason=chunk.choices[0].finish_reason, usage=usage)
+
+    def validate_api_key(self, key: str) -> bool:
+        try:
+            import requests
+            resp = requests.get(
+                f"{self.base_url}/models",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                return True
+            if resp.status_code in (401, 403):
+                return False
+            return bool(key)
+        except Exception:
+            return bool(key)

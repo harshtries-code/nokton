@@ -165,4 +165,29 @@ class LLMProvider(ABC):
         return True
 
     def validate_api_key(self, key: str) -> bool:
-        return bool(key)
+        if not key or not key.strip():
+            return False
+        return self._probe_auth(key)
+
+    def _probe_auth(self, key: str) -> bool:
+        try:
+            import requests
+            url = (self.base_url or "").rstrip("/")
+            if not url:
+                return True
+            for path in ("/models", "/auth/key", "/me"):
+                try:
+                    resp = requests.get(
+                        f"{url}{path}",
+                        headers={"Authorization": f"Bearer {key}"},
+                        timeout=5,
+                    )
+                    if resp.status_code == 200:
+                        return True
+                    if resp.status_code in (401, 403):
+                        return False
+                except requests.RequestException:
+                    continue
+            return bool(key)
+        except Exception:
+            return bool(key)

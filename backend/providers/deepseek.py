@@ -3,6 +3,14 @@ from openai import OpenAI
 from .base import LLMProvider, ModelInfo, ModelCapabilities, StreamEvent, StreamEventType, Message, ToolDef
 
 
+REASONING_MAP = {
+    "off": {},
+    "high": {"thinking": {"type": "enabled"}},
+    "xhigh": {"thinking": {"type": "enabled"}, "reasoning_effort": "max"},
+    "max": {"thinking": {"type": "enabled"}, "reasoning_effort": "max"},
+}
+
+
 class DeepSeekProvider(LLMProvider):
     id = "deepseek"
     name = "DeepSeek"
@@ -16,7 +24,7 @@ class DeepSeekProvider(LLMProvider):
 
     def get_models(self) -> list[ModelInfo]:
         return [
-            ModelInfo(id="deepseek-chat", provider_id=self.id, name="DeepSeek V4", context_window=1000000, capabilities=ModelCapabilities(tool_calling=True, reasoning=True)),
+            ModelInfo(id="deepseek-chat", provider_id=self.id, name="DeepSeek V3", context_window=1000000, capabilities=ModelCapabilities(tool_calling=True, reasoning=True)),
             ModelInfo(id="deepseek-reasoner", provider_id=self.id, name="DeepSeek Reasoner", context_window=1000000, capabilities=ModelCapabilities(reasoning=True)),
         ]
 
@@ -31,9 +39,7 @@ class DeepSeekProvider(LLMProvider):
             body["tools"] = [t.to_schema() for t in tools]
             body["tool_choice"] = tool_choice
         if reasoning_effort:
-            body["thinking"] = {"type": "enabled"}
-            if reasoning_effort == "max":
-                body["reasoning_effort"] = "max"
+            body.update(REASONING_MAP.get(reasoning_effort, REASONING_MAP.get("off", {})))
 
         try:
             stream = client.chat.completions.create(**body)
@@ -54,6 +60,12 @@ class DeepSeekProvider(LLMProvider):
                         if tc.function.arguments:
                             args = json.loads(tc.function.arguments)
                     except json.JSONDecodeError:
+                        yield StreamEvent(
+                            type=StreamEventType.TOOL_CALL_PARTIAL,
+                            tool_call_id=tc.id or "",
+                            tool_name=tc.function.name or "",
+                            tool_args={"__partial": tc.function.arguments or ""},
+                        )
                         continue
                     yield StreamEvent(type=StreamEventType.TOOL_CALL, tool_call_id=tc.id or "", tool_name=tc.function.name or "", tool_args=args)
             if chunk.choices[0].finish_reason:

@@ -31,12 +31,9 @@ class OllamaProvider(LLMProvider):
                     capabilities=ModelCapabilities(tool_calling=True),
                 ))
             return models
-        except Exception:
-            return [
-                ModelInfo(id="llama3.2", provider_id=self.id, name="Llama 3.2", context_window=128000, capabilities=ModelCapabilities(vision=True, tool_calling=True)),
-                ModelInfo(id="mistral", provider_id=self.id, name="Mistral", context_window=32768, capabilities=ModelCapabilities(tool_calling=True)),
-                ModelInfo(id="qwen2.5", provider_id=self.id, name="Qwen 2.5", context_window=32768, capabilities=ModelCapabilities(tool_calling=True)),
-            ]
+        except Exception as e:
+            print(f"[ollama] could not fetch models: {e}")
+            return []
 
     def stream_chat(self, model, messages, tools=None, tool_choice="auto", reasoning_effort=None, max_tokens=None, temperature=None, stop=None):
         client = OpenAI(api_key=self.api_key or "ollama", base_url=self.base_url)
@@ -47,6 +44,7 @@ class OllamaProvider(LLMProvider):
             body["temperature"] = temperature
         if tools:
             body["tools"] = [t.to_schema() for t in tools]
+            body["tool_choice"] = tool_choice
 
         try:
             stream = client.chat.completions.create(**body)
@@ -60,5 +58,14 @@ class OllamaProvider(LLMProvider):
                 continue
             if delta.content:
                 yield StreamEvent(type=StreamEventType.TEXT_DELTA, text=delta.content)
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    args = {}
+                    try:
+                        if tc.function.arguments:
+                            args = json.loads(tc.function.arguments)
+                    except json.JSONDecodeError:
+                        continue
+                    yield StreamEvent(type=StreamEventType.TOOL_CALL, tool_call_id=tc.id or "", tool_name=tc.function.name or "", tool_args=args)
             if chunk.choices[0].finish_reason:
                 yield StreamEvent(type=StreamEventType.FINISH, finish_reason=chunk.choices[0].finish_reason)

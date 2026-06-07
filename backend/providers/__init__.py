@@ -41,6 +41,8 @@ class ProviderRegistry:
         return result
 
     def refresh_models(self):
+        if self._catalog.load_cache() and not self._catalog.is_stale():
+            return
         for pid, provider in self._providers.items():
             try:
                 models = provider.get_models()
