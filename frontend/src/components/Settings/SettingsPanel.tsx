@@ -2,6 +2,12 @@ import React, { useState } from 'react';
 import { ModelSelector } from './ModelSelector';
 import { ReasoningSlider } from './ReasoningSlider';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { getWebSocket } from '../../hooks/useWebSocket';
+
+function update(path: string, value: unknown) {
+  useSettingsStore.getState().update(path, value);
+  getWebSocket().updateSetting(path, value);
+}
 
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const settings = useSettingsStore((s) => s.settings);
@@ -26,7 +32,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             <input
               type="checkbox"
               checked={settings.ui.show_reasoning}
-              onChange={(e) => useSettingsStore.getState().update('ui.show_reasoning', e.target.checked)}
+              onChange={(e) => update('ui.show_reasoning', e.target.checked)}
             />
             Show reasoning
           </label>
@@ -34,7 +40,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             <input
               type="checkbox"
               checked={settings.ui.show_tool_calls}
-              onChange={(e) => useSettingsStore.getState().update('ui.show_tool_calls', e.target.checked)}
+              onChange={(e) => update('ui.show_tool_calls', e.target.checked)}
             />
             Show tool calls
           </label>
@@ -46,7 +52,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             STT Model:
             <select
               value={settings.voice.stt.model_size}
-              onChange={(e) => useSettingsStore.getState().update('voice.stt.model_size', e.target.value)}
+              onChange={(e) => update('voice.stt.model_size', e.target.value)}
               style={styles.select}
             >
               <option value="tiny">Tiny (fast)</option>
@@ -58,7 +64,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             TTS Voice:
             <select
               value={settings.voice.tts.voice}
-              onChange={(e) => useSettingsStore.getState().update('voice.tts.voice', e.target.value)}
+              onChange={(e) => update('voice.tts.voice', e.target.value)}
               style={styles.select}
             >
               <option value="en-US-JennyNeural">Jenny (US)</option>

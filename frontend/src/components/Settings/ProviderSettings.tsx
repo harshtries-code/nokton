@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
+import { getWebSocket } from '../../hooks/useWebSocket';
 
 export function ProviderSettings() {
   const [keys, setKeys] = useState<Record<string, string>>({});
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
 
   const providers = [
     { id: 'openrouter', name: 'OpenRouter', placeholder: 'sk-or-...' },
@@ -12,8 +14,10 @@ export function ProviderSettings() {
   ];
 
   const handleSave = (id: string) => {
-    const ws = require('../../hooks/useWebSocket').getWebSocket();
-    ws.updateSetting(`${id}_api_key`, keys[id] || '');
+    const value = keys[id] || '';
+    getWebSocket().setApiKey(id, value);
+    setSaved((s) => ({ ...s, [id]: true }));
+    setTimeout(() => setSaved((s) => ({ ...s, [id]: false })), 1500);
   };
 
   return (
@@ -28,7 +32,9 @@ export function ProviderSettings() {
             onChange={(e) => setKeys((k) => ({ ...k, [p.id]: e.target.value }))}
             style={styles.input}
           />
-          <button style={styles.btn} onClick={() => handleSave(p.id)}>Save</button>
+          <button style={styles.btn} onClick={() => handleSave(p.id)}>
+            {saved[p.id] ? '✓' : 'Save'}
+          </button>
         </div>
       ))}
     </div>
@@ -55,5 +61,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 6,
     cursor: 'pointer',
     fontSize: 12,
+    minWidth: 50,
   },
 };
