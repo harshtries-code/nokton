@@ -7,6 +7,7 @@ from .google import GoogleProvider
 from .groq import GroqProvider
 from .ollama import OllamaProvider
 from .custom import CustomProvider
+from .opencode import OpenCodeProvider
 from .model_catalog import ModelCatalog
 
 
@@ -74,3 +75,4 @@ registry.register(GoogleProvider())
 registry.register(GroqProvider())
 registry.register(OllamaProvider())
 registry.register(CustomProvider())
+registry.register(OpenCodeProvider())

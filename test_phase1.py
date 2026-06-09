@@ -10,9 +10,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 def test_providers_list():
     from backend.providers import registry
     ps = registry.list_providers()
-    assert len(ps) == 8, f"expected 8 providers, got {len(ps)}"
+    assert len(ps) == 9, f"expected 9 providers, got {len(ps)}"
     ids = {p["id"] for p in ps}
-    expected = {"openrouter", "openai", "anthropic", "deepseek", "google", "groq", "ollama", "custom"}
+    expected = {"openrouter", "openai", "anthropic", "deepseek", "google", "groq", "ollama", "custom", "opencode"}
     assert ids == expected, f"provider ids mismatch: {ids} != {expected}"
     print(f"  OK: {len(ps)} providers registered")
 
