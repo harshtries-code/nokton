@@ -30,6 +30,8 @@ pywin32>=306
 duckduckgo_search>=6.0.0
 requests>=2.32.0
 beautifulsoup4>=4.12.0
+cloakbrowser>=0.3.31
+scrapling[fetchers]>=0.4.9
 
 # OCR
 pytesseract>=0.3.13

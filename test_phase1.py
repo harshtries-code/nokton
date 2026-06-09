@@ -71,7 +71,7 @@ def test_model_catalog_roundtrip():
 def test_all_tools_register():
     from backend.tools import tool_registry
     tools = tool_registry.list_tools()
-    assert len(tools) == 32, f"expected 32 tools, got {len(tools)}"
+    assert len(tools) == 37, f"expected 37 tools, got {len(tools)}"
     print(f"  OK: {len(tools)} tools registered (no import errors)")
 
 
