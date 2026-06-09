@@ -1,7 +1,6 @@
 import json
 from openai import OpenAI
-from .base import LLMProvider, ModelInfo, ModelCapabilities, StreamEvent, StreamEventType, Message, ToolDef
-
+from .base import LLMProvider, ModelInfo, ModelCapabilities, StreamEvent, StreamEventType, Message, ToolDef, _stream_openai_compatible
 
 REASONING_MAP = {
     "off": {},
@@ -23,53 +22,45 @@ class DeepSeekProvider(LLMProvider):
             self.base_url = base_url
 
     def get_models(self) -> list[ModelInfo]:
+        try:
+            client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            models = client.models.list()
+            result = []
+            for m in models:
+                mid = m.id
+                result.append(ModelInfo(
+                    id=mid,
+                    provider_id=self.id,
+                    name=mid,
+                    context_window=128000,
+                    capabilities=ModelCapabilities(
+                        tool_calling=True,
+                        reasoning="reasoner" in mid.lower() or "pro" in mid.lower(),
+                    ),
+                ))
+            return result if result else self._default_models()
+        except Exception:
+            return self._default_models()
+
+    def _default_models(self) -> list[ModelInfo]:
         return [
-            ModelInfo(id="deepseek-chat", provider_id=self.id, name="DeepSeek V3", context_window=1000000, capabilities=ModelCapabilities(tool_calling=True, reasoning=True)),
-            ModelInfo(id="deepseek-reasoner", provider_id=self.id, name="DeepSeek Reasoner", context_window=1000000, capabilities=ModelCapabilities(reasoning=True)),
+            ModelInfo(id="deepseek-chat-v3.1", provider_id=self.id, name="DeepSeek Chat V3.1", context_window=128000, capabilities=ModelCapabilities(tool_calling=True)),
+            ModelInfo(id="deepseek-reasoner-v4", provider_id=self.id, name="DeepSeek Reasoner V4", context_window=128000, capabilities=ModelCapabilities(reasoning=True, tool_calling=True)),
+            ModelInfo(id="deepseek-v4-flash", provider_id=self.id, name="DeepSeek V4 Flash", context_window=128000, capabilities=ModelCapabilities(tool_calling=True)),
+            ModelInfo(id="deepseek-v4-pro", provider_id=self.id, name="DeepSeek V4 Pro", context_window=128000, capabilities=ModelCapabilities(reasoning=True, tool_calling=True)),
         ]
 
     def stream_chat(self, model, messages, tools=None, tool_choice="auto", reasoning_effort=None, max_tokens=None, temperature=None, stop=None):
         client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-        body = {"model": model, "messages": [m.to_dict() for m in messages], "stream": True}
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
-        if temperature is not None:
-            body["temperature"] = temperature
-        if tools:
-            body["tools"] = [t.to_schema() for t in tools]
-            body["tool_choice"] = tool_choice
-        if reasoning_effort:
-            body.update(REASONING_MAP.get(reasoning_effort, REASONING_MAP.get("off", {})))
-
-        try:
-            stream = client.chat.completions.create(**body)
-        except Exception as e:
-            yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
-            return
-
-        for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta is None:
-                continue
-            if delta.content:
-                yield StreamEvent(type=StreamEventType.TEXT_DELTA, text=delta.content)
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    args = {}
-                    try:
-                        if tc.function.arguments:
-                            args = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
-                        yield StreamEvent(
-                            type=StreamEventType.TOOL_CALL_PARTIAL,
-                            tool_call_id=tc.id or "",
-                            tool_name=tc.function.name or "",
-                            tool_args={"__partial": tc.function.arguments or ""},
-                        )
-                        continue
-                    yield StreamEvent(type=StreamEventType.TOOL_CALL, tool_call_id=tc.id or "", tool_name=tc.function.name or "", tool_args=args)
-            if chunk.choices[0].finish_reason:
-                usage = None
-                if chunk.usage:
-                    usage = {"input": chunk.usage.prompt_tokens, "output": chunk.usage.completion_tokens, "total": chunk.usage.total_tokens}
-                yield StreamEvent(type=StreamEventType.FINISH, finish_reason=chunk.choices[0].finish_reason, usage=usage)
+        extra = REASONING_MAP.get(reasoning_effort, REASONING_MAP.get("off", {})) if reasoning_effort else {}
+        yield from _stream_openai_compatible(
+            client=client,
+            model=model,
+            messages=[m.to_dict() for m in messages],
+            tools=tools,
+            tool_choice=tool_choice,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stop=stop,
+            extra_body=extra if extra else None,
+        )

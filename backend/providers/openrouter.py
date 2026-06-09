@@ -2,7 +2,7 @@ import json
 import requests
 from openai import OpenAI
 from typing import Generator
-from .base import LLMProvider, ModelInfo, ModelCapabilities, ModelPricing, StreamEvent, StreamEventType, Message, ToolDef
+from .base import LLMProvider, ModelInfo, ModelCapabilities, ModelPricing, StreamEvent, StreamEventType, Message, ToolDef, _stream_openai_compatible
 
 REASONING_MAP = {
     "off": {},
@@ -73,72 +73,18 @@ class OpenRouterProvider(LLMProvider):
         stop: list[str] | None = None,
     ) -> Generator[StreamEvent, None, None]:
         client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-
-        body = {
-            "model": model,
-            "messages": [m.to_dict() for m in messages],
-            "stream": True,
-        }
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
-        if temperature is not None:
-            body["temperature"] = temperature
-        if stop:
-            body["stop"] = stop
-        if tools:
-            body["tools"] = [t.to_schema() for t in tools]
-            body["tool_choice"] = tool_choice
-        if reasoning_effort:
-            body.update(REASONING_MAP.get(reasoning_effort, {}))
-
-        try:
-            stream = client.chat.completions.create(**body)
-        except Exception as e:
-            yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
-            return
-
-        for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta is None:
-                continue
-
-            if delta.content:
-                yield StreamEvent(type=StreamEventType.TEXT_DELTA, text=delta.content)
-
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    args = {}
-                    try:
-                        if tc.function.arguments:
-                            args = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
-                        yield StreamEvent(
-                            type=StreamEventType.TOOL_CALL_PARTIAL,
-                            tool_call_id=tc.id or "",
-                            tool_name=tc.function.name or "",
-                            tool_args={"__partial": tc.function.arguments or ""},
-                        )
-                        continue
-                    yield StreamEvent(
-                        type=StreamEventType.TOOL_CALL,
-                        tool_call_id=tc.id or "",
-                        tool_name=tc.function.name or "",
-                        tool_args=args,
-                    )
-
-            if chunk.choices[0].finish_reason:
-                usage = None
-                if chunk.usage:
-                    usage = {
-                        "input": chunk.usage.prompt_tokens,
-                        "output": chunk.usage.completion_tokens,
-                        "total": chunk.usage.total_tokens,
-                    }
-                yield StreamEvent(
-                    type=StreamEventType.FINISH,
-                    finish_reason=chunk.choices[0].finish_reason,
-                    usage=usage,
-                )
+        extra = REASONING_MAP.get(reasoning_effort, {}) if reasoning_effort else {}
+        yield from _stream_openai_compatible(
+            client=client,
+            model=model,
+            messages=[m.to_dict() for m in messages],
+            tools=tools,
+            tool_choice=tool_choice,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stop=stop,
+            extra_body=extra if extra else None,
+        )
 
     def validate_api_key(self, key: str) -> bool:
         try:

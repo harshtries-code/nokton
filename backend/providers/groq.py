@@ -1,6 +1,11 @@
-import json
 from openai import OpenAI
-from .base import LLMProvider, ModelInfo, ModelCapabilities, StreamEvent, StreamEventType, Message, ToolDef
+from .base import LLMProvider, ModelInfo, ModelCapabilities, StreamEvent, StreamEventType, _stream_openai_compatible
+
+REASONING_MAP = {
+    "off": {},
+    "high": {"reasoning_effort": "high"},
+    "xhigh": {"reasoning_effort": "high"},
+}
 
 
 class GroqProvider(LLMProvider):
@@ -15,6 +20,27 @@ class GroqProvider(LLMProvider):
             self.base_url = base_url
 
     def get_models(self) -> list[ModelInfo]:
+        try:
+            client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            models = client.models.list()
+            result = []
+            for m in models:
+                mid = m.id
+                result.append(ModelInfo(
+                    id=mid,
+                    provider_id=self.id,
+                    name=mid,
+                    context_window=128000,
+                    capabilities=ModelCapabilities(
+                        tool_calling=True,
+                        reasoning="deepseek-r1" in mid.lower() or "reasoning" in mid.lower(),
+                    ),
+                ))
+            return result if result else self._default_models()
+        except Exception:
+            return self._default_models()
+
+    def _default_models(self) -> list[ModelInfo]:
         return [
             ModelInfo(id="llama-3.3-70b-versatile", provider_id=self.id, name="Llama 3.3 70B", context_window=128000, capabilities=ModelCapabilities(tool_calling=True)),
             ModelInfo(id="llama-3.1-8b-instant", provider_id=self.id, name="Llama 3.1 8B Instant", context_window=128000, capabilities=ModelCapabilities(tool_calling=True)),
@@ -24,38 +50,15 @@ class GroqProvider(LLMProvider):
 
     def stream_chat(self, model, messages, tools=None, tool_choice="auto", reasoning_effort=None, max_tokens=None, temperature=None, stop=None):
         client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-        body = {"model": model, "messages": [m.to_dict() for m in messages], "stream": True}
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
-        if temperature is not None:
-            body["temperature"] = temperature
-        if tools:
-            body["tools"] = [t.to_schema() for t in tools]
-            body["tool_choice"] = tool_choice
-
-        try:
-            stream = client.chat.completions.create(**body)
-        except Exception as e:
-            yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
-            return
-
-        for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta is None:
-                continue
-            if delta.content:
-                yield StreamEvent(type=StreamEventType.TEXT_DELTA, text=delta.content)
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    args = {}
-                    try:
-                        if tc.function.arguments:
-                            args = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
-                        continue
-                    yield StreamEvent(type=StreamEventType.TOOL_CALL, tool_call_id=tc.id or "", tool_name=tc.function.name or "", tool_args=args)
-            if chunk.choices[0].finish_reason:
-                usage = None
-                if chunk.usage:
-                    usage = {"input": chunk.usage.prompt_tokens, "output": chunk.usage.completion_tokens, "total": chunk.usage.total_tokens}
-                yield StreamEvent(type=StreamEventType.FINISH, finish_reason=chunk.choices[0].finish_reason, usage=usage)
+        extra = REASONING_MAP.get(reasoning_effort, {}) if reasoning_effort else {}
+        yield from _stream_openai_compatible(
+            client=client,
+            model=model,
+            messages=[m.to_dict() for m in messages],
+            tools=tools,
+            tool_choice=tool_choice,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stop=stop,
+            extra_body=extra if extra else None,
+        )
