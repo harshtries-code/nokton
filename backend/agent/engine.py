@@ -12,6 +12,7 @@ from .context_compressor import ContextCompressor, estimate_tokens
 from .skill_manager import SkillManager
 from .interrupt_manager import InterruptManager, InterruptError
 from .cost_tracker import CostTracker
+from .error_classifier import classify_api_error, RetryStrategy
 
 
 class AgentEngine:
@@ -37,6 +38,7 @@ class AgentEngine:
         self._skills = SkillManager()
         self._pending_confirmations: dict[str, asyncio.Event] = {}
         self._confirmation_results: dict[str, bool] = {}
+        self._error_retry = RetryStrategy(max_retries=2)
 
     @property
     def interrupt(self) -> InterruptManager:
@@ -215,17 +217,32 @@ class AgentEngine:
                 await asyncio.sleep(0)
 
                 if provider_error and not all_text and not pending_tool_calls:
-                    fallback_id = self._next_fallback(provider_id)
-                    if fallback_id and fallback_id != provider_id:
+                    classified = classify_api_error(provider_error)
+                    retry_attempt = 0
+                    while self._error_retry.should_retry(classified, retry_attempt):
+                        retry_attempt += 1
+                        d = self._error_retry.delay(classified, retry_attempt - 1)
                         yield {
                             "type": "status",
                             "state": "thinking",
-                            "info": f"Provider '{provider_id}' failed ({provider_error}); retrying with '{fallback_id}'",
+                            "info": f"Provider '{provider_id}' failed ({provider_error}); retry {retry_attempt} in {d:.0f}s",
                         }
-                        provider_id = fallback_id
-                        continue
-                    yield {"type": "error", "code": "STREAM_ERROR", "message": provider_error}
-                    return
+                        await asyncio.sleep(d)
+                        self._interrupt.check()
+                        provider_error = None
+                        break
+                    if provider_error:
+                        fallback_id = self._next_fallback(provider_id) if self._error_retry.should_fallback(classified) else None
+                        if fallback_id and fallback_id != provider_id:
+                            yield {
+                                "type": "status",
+                                "state": "thinking",
+                                "info": f"Provider '{provider_id}' failed ({provider_error}); retrying with '{fallback_id}'",
+                            }
+                            provider_id = fallback_id
+                            continue
+                        yield {"type": "error", "code": "STREAM_ERROR", "message": provider_error}
+                        return
 
                 if pending_tool_calls and (all_text or all_reasoning):
                     self._conv_manager.add_message(
