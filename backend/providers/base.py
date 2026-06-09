@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Generator, Any, Callable
 from enum import Enum
+import json
 
 
 class StreamEventType(Enum):
@@ -23,6 +24,85 @@ class StreamEvent:
     finish_reason: str = ""
     usage: dict[str, int] | None = None
     error: str = ""
+
+
+def _stream_openai_compatible(
+    client,
+    model: str,
+    messages: list,
+    tools: list | None = None,
+    tool_choice: str = "auto",
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    stop: list[str] | None = None,
+    extra_body: dict | None = None,
+) -> Generator[StreamEvent, None, None]:
+    """Shared streaming implementation for OpenAI-compatible APIs."""
+    body = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+    }
+    if max_tokens is not None:
+        body["max_tokens"] = max_tokens
+    if temperature is not None:
+        body["temperature"] = temperature
+    if stop:
+        body["stop"] = stop
+    if tools:
+        body["tools"] = [t.to_schema() for t in tools]
+        body["tool_choice"] = tool_choice
+    if extra_body:
+        body.update(extra_body)
+
+    try:
+        stream = client.chat.completions.create(**body)
+    except Exception as e:
+        yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
+        return
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta is None:
+            continue
+
+        if delta.content:
+            yield StreamEvent(type=StreamEventType.TEXT_DELTA, text=delta.content)
+
+        if delta.tool_calls:
+            for tc in delta.tool_calls:
+                args = {}
+                try:
+                    if tc.function.arguments:
+                        args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    yield StreamEvent(
+                        type=StreamEventType.TOOL_CALL_PARTIAL,
+                        tool_call_id=tc.id or "",
+                        tool_name=tc.function.name or "",
+                        tool_args={"__partial": tc.function.arguments or ""},
+                    )
+                    continue
+                yield StreamEvent(
+                    type=StreamEventType.TOOL_CALL,
+                    tool_call_id=tc.id or "",
+                    tool_name=tc.function.name or "",
+                    tool_args=args,
+                )
+
+        if chunk.choices[0].finish_reason:
+            usage = None
+            if chunk.usage:
+                usage = {
+                    "input": chunk.usage.prompt_tokens,
+                    "output": chunk.usage.completion_tokens,
+                    "total": chunk.usage.total_tokens,
+                }
+            yield StreamEvent(
+                type=StreamEventType.FINISH,
+                finish_reason=chunk.choices[0].finish_reason,
+                usage=usage,
+            )
 
 
 @dataclass
@@ -163,6 +243,13 @@ class LLMProvider(ABC):
     @property
     def requires_api_key(self) -> bool:
         return True
+
+    def check_health(self) -> bool:
+        try:
+            models = self.get_models()
+            return len(models) > 0
+        except Exception:
+            return False
 
     def validate_api_key(self, key: str) -> bool:
         if not key or not key.strip():
