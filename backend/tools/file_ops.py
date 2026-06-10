@@ -2,6 +2,7 @@ import os
 import shutil
 from pathlib import Path
 from .registry import tool
+from ..util.format_utils import format_bytes as _format_size
 
 
 @tool(category="file_read")
@@ -169,9 +170,4 @@ def copy_file(source: str, dest: str) -> str:
     return f"Error: '{source}' is not a file"
 
 
-def _format_size(size: int) -> str:
-    for unit in ("B", "KB", "MB", "GB"):
-        if size < 1024:
-            return f"{size:.1f}{unit}"
-        size /= 1024
-    return f"{size:.1f}TB"
+

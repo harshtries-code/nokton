@@ -5,7 +5,6 @@ from typing import Any
 
 TOOL_LOG_PATH = Path.home() / ".nokton" / "logs" / "tool_calls.log"
 APP_LOG_PATH = Path.home() / ".nokton" / "logs" / "app.log"
-COST_LOG_PATH = Path.home() / ".nokton" / "logs" / "cost.log"
 
 
 class AuditLogger:
@@ -35,17 +34,6 @@ class AuditLogger:
             **extra,
         }
         self._append(APP_LOG_PATH, entry)
-
-    def log_cost(self, provider: str, model: str, input_tokens: int, output_tokens: int, cost_usd: float):
-        entry = {
-            "timestamp": datetime.now().isoformat(),
-            "provider": provider,
-            "model": model,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cost_usd": round(cost_usd, 6),
-        }
-        self._append(COST_LOG_PATH, entry)
 
     def _sanitize(self, args: dict) -> dict[str, Any]:
         sensitive_keys = {"api_key", "password", "secret", "token", "key"}

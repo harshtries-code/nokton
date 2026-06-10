@@ -53,10 +53,16 @@ def _stream_openai_compatible(
         body["tools"] = [t.to_schema() for t in tools]
         body["tool_choice"] = tool_choice
     if extra_body:
-        body.update(extra_body)
+        body["extra_body"] = extra_body
+
+    # Separate extra_body from regular params since OpenAI SDK needs it as a distinct kwarg
+    sdk_extra = body.pop("extra_body", None)
 
     try:
-        stream = client.chat.completions.create(**body)
+        create_kwargs = dict(body)
+        if sdk_extra:
+            create_kwargs["extra_body"] = sdk_extra
+        stream = client.chat.completions.create(**create_kwargs)
     except Exception as e:
         yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
         return

@@ -17,6 +17,7 @@ interface ConversationState {
   pendingToolCalls: ToolCall[];
   conversations: ConversationSummary[];
   currentConversationId: string | null;
+  lastError: string | null;
   addMessage: (msg: Message) => void;
   appendToLastAssistant: (text: string) => void;
   appendReasoning: (text: string) => void;
@@ -29,6 +30,7 @@ interface ConversationState {
   setConversations: (c: ConversationSummary[]) => void;
   setCurrentConversationId: (id: string | null) => void;
   loadFromServer: (conv: any) => void;
+  setError: (err: string | null) => void;
 }
 
 export const useConversationStore = create<ConversationState>((set) => ({
@@ -40,6 +42,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
   pendingToolCalls: [],
   conversations: [],
   currentConversationId: null,
+  lastError: null,
 
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -114,4 +117,6 @@ export const useConversationStore = create<ConversationState>((set) => ({
     streamingReasoning: '',
     pendingToolCalls: [],
   }),
+
+  setError: (err) => set({ lastError: err }),
 }));

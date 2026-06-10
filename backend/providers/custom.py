@@ -1,5 +1,5 @@
 from openai import OpenAI
-from .base import LLMProvider, ModelInfo, ModelCapabilities, _stream_openai_compatible
+from .base import LLMProvider, ModelInfo, _stream_openai_compatible
 
 
 class CustomProvider(LLMProvider):

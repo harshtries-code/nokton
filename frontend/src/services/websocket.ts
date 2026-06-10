@@ -7,6 +7,10 @@ export class NoktonWebSocket {
   private url: string;
   private handlers: Map<string, Set<WSHandler>> = new Map();
   private connected = false;
+  private reconnectDelay = 1000;
+  private maxReconnectDelay = 30000;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private intentionalClose = false;
 
   constructor(url = 'ws://localhost:8765/ws') {
     this.url = url;
@@ -19,6 +23,8 @@ export class NoktonWebSocket {
 
     this.ws.onopen = () => {
       this.connected = true;
+      this.reconnectDelay = 1000;
+      this.intentionalClose = false;
       this.emit('connected', { type: 'connected' });
     };
 
@@ -32,6 +38,9 @@ export class NoktonWebSocket {
     this.ws.onclose = () => {
       this.connected = false;
       this.emit('disconnected', { type: 'disconnected' });
+      if (!this.intentionalClose) {
+        this.scheduleReconnect();
+      }
     };
 
     this.ws.onerror = (error) => {
@@ -40,11 +49,25 @@ export class NoktonWebSocket {
   }
 
   disconnect() {
+    this.intentionalClose = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
     this.connected = false;
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+      this.connect();
+    }, this.reconnectDelay);
   }
 
   send(data: Record<string, unknown>) {

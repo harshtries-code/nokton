@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { ModelSelector } from './ModelSelector';
 import { ReasoningSlider } from './ReasoningSlider';
+import { ProviderSettings } from './ProviderSettings';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { getWebSocket } from '../../hooks/useWebSocket';
 
@@ -13,36 +14,44 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const settings = useSettingsStore((s) => s.settings);
 
   return (
-    <div style={styles.overlay}>
-      <div style={styles.panel}>
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.panel} onClick={(e) => e.stopPropagation()}>
         <div style={styles.header}>
-          <h2 style={styles.title}>Settings</h2>
+          <h2 style={styles.title}>⚙ Settings</h2>
           <button style={styles.closeBtn} onClick={onClose}>✕</button>
         </div>
 
         <div style={styles.section}>
-          <h3 style={styles.sectionTitle}>Model</h3>
+          <h3 style={styles.sectionTitle}>Model Configuration</h3>
           <ModelSelector />
           <ReasoningSlider />
         </div>
 
         <div style={styles.section}>
-          <h3 style={styles.sectionTitle}>UI</h3>
+          <h3 style={styles.sectionTitle}>API Keys</h3>
+          <p style={styles.sectionHint}>Configure at least one provider. OpenRouter offers free models.</p>
+          <ProviderSettings />
+        </div>
+
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Display</h3>
           <label style={styles.label}>
             <input
               type="checkbox"
               checked={settings.ui.show_reasoning}
               onChange={(e) => update('ui.show_reasoning', e.target.checked)}
+              style={styles.checkbox}
             />
-            Show reasoning
+            Show reasoning traces
           </label>
           <label style={styles.label}>
             <input
               type="checkbox"
               checked={settings.ui.show_tool_calls}
               onChange={(e) => update('ui.show_tool_calls', e.target.checked)}
+              style={styles.checkbox}
             />
-            Show tool calls
+            Show tool call details
           </label>
         </div>
 
@@ -82,38 +91,66 @@ const styles: Record<string, React.CSSProperties> = {
   overlay: {
     position: 'fixed',
     top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.7)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,
+    backdropFilter: 'blur(4px)',
   },
   panel: {
-    backgroundColor: '#1a1a2e',
-    border: '1px solid #2a2a4a',
-    borderRadius: 16,
+    backgroundColor: 'rgba(10, 10, 18, 0.97)',
+    border: '1px solid rgba(0, 212, 255, 0.2)',
+    boxShadow: '0 8px 40px rgba(0, 0, 0, 0.6), 0 0 1px rgba(0, 212, 255, 0.3)',
+    borderRadius: 12,
     padding: 24,
-    width: 480,
-    maxHeight: '80vh',
+    width: 520,
+    maxHeight: '85vh',
     overflow: 'auto',
-    color: '#e0e0e0',
+    color: '#e2e8f0',
   },
   header: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
+    paddingBottom: 12,
+    borderBottom: '1px solid rgba(0, 212, 255, 0.1)',
   },
-  title: { margin: 0, fontSize: 20, fontWeight: 700 },
+  title: {
+    margin: 0,
+    fontSize: 18,
+    fontWeight: 700,
+    color: '#00d4ff',
+    letterSpacing: 1,
+  },
   closeBtn: {
     backgroundColor: 'transparent',
-    color: '#9ca3af',
+    color: 'rgba(226, 232, 240, 0.5)',
     border: 'none',
     cursor: 'pointer',
     fontSize: 18,
+    padding: '4px 8px',
+    borderRadius: 4,
+    transition: 'color 0.2s',
   },
-  section: { marginBottom: 20 },
-  sectionTitle: { fontSize: 14, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', margin: '0 0 12px 0' },
+  section: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: 'rgba(0, 212, 255, 0.5)',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    margin: '0 0 10px 0',
+  },
+  sectionHint: {
+    fontSize: 11,
+    color: 'rgba(226, 232, 240, 0.35)',
+    marginBottom: 10,
+    marginTop: -4,
+  },
   label: {
     display: 'flex',
     alignItems: 'center',
@@ -122,12 +159,16 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 8,
     color: '#d1d5db',
   },
+  checkbox: {
+    accentColor: '#00d4ff',
+  },
   select: {
-    backgroundColor: '#111827',
-    color: '#e0e0e0',
-    border: '1px solid #2a2a4a',
+    backgroundColor: 'rgba(10, 10, 15, 0.8)',
+    color: '#e2e8f0',
+    border: '1px solid rgba(0, 212, 255, 0.15)',
     borderRadius: 6,
-    padding: '4px 8px',
+    padding: '5px 8px',
     fontSize: 13,
+    fontFamily: 'inherit',
   },
 };

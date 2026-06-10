@@ -1,0 +1,54 @@
+appId: com.nokton.app
+productName: Nokton
+copyright: Copyright (c) 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - main.js
+  - preload.js
+  - dist/**/*
+  - package.json
+
+extraResources:
+  - from: ../backend
+    to: backend
+    filter:
+      - "**/*"
+      - "!__pycache__/**"
+      - "!*.pyc"
+      - "!.pytest_cache/**"
+  - from: ..
+    to: .
+    filter:
+      - requirements.txt
+      - nokton.json
+
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  icon: build/icon.png
+  artifactName: ${productName}-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Nokton
+  installerIcon: build/icon.png
+  uninstallerIcon: build/icon.png
+
+asar: true
+asarUnpack:
+  - "**/node_modules/**/*.node"
+  - "**/build/**"
+
+nodeGypRebuild: false
+npmRebuild: false

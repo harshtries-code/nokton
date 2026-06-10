@@ -5,10 +5,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .config import Config
-from .providers import registry as provider_registry, ModelInfo
+from .providers import registry as provider_registry
 from .tools.registry import tool_registry, set_audit_logger
 from .agent.engine import AgentEngine
 from .agent.conversation_manager import ConversationManager
@@ -30,6 +30,7 @@ audit_logger = AuditLogger()
 set_audit_logger(audit_logger)
 api_key_manager = ApiKeyManager()
 config.set_key_manager(api_key_manager)
+provider_registry.configure_keys(config)
 engine = AgentEngine(
     provider_registry=provider_registry,
     tool_registry=tool_registry,
@@ -262,6 +263,14 @@ async def update_settings(update: SettingsUpdate):
         for k, v in update.ui.items():
             if hasattr(config.ui, k):
                 setattr(config.ui, k, v)
+        if "personality" in update.ui:
+            p = update.ui["personality"]
+            if p == "butler":
+                config.voice.tts.voice = "en-GB-RyanNeural"
+            elif p == "overlord":
+                config.voice.tts.voice = "en-US-GuyNeural"
+            else:
+                config.voice.tts.voice = "en-US-JennyNeural"
     if update.tools:
         for k, v in update.tools.items():
             if hasattr(config.tools, k):
@@ -282,6 +291,9 @@ async def set_api_key(req: SetApiKeyRequest):
         raise HTTPException(status_code=400, detail=f"Unknown provider: {req.provider}")
     config.set_provider_api_key(req.provider, req.api_key)
     config.save()
+    provider = provider_registry.get(req.provider)
+    if provider:
+        provider.api_key = req.api_key
     return {"ok": True, "provider": req.provider}
 
 
@@ -429,6 +441,7 @@ async def websocket_endpoint(ws: WebSocket):
                     except asyncio.CancelledError:
                         pass
                     except Exception as e:
+                        logger.error("stream_events error: %s", e, exc_info=True)
                         try:
                             await _send({"type": "error", "code": "AGENT_ERROR", "message": str(e)})
                         except Exception:
@@ -453,6 +466,14 @@ async def websocket_endpoint(ws: WebSocket):
                 key = data.get("key", "")
                 value = data.get("value")
                 if _set_config_path(key, value):
+                    if key == "ui.personality":
+                        p = value
+                        if p == "butler":
+                            config.voice.tts.voice = "en-GB-RyanNeural"
+                        elif p == "overlord":
+                            config.voice.tts.voice = "en-US-GuyNeural"
+                        else:
+                            config.voice.tts.voice = "en-US-JennyNeural"
                     config.save()
                 await ws.send_json({"type": "settings", **config.to_dict()})
 
@@ -468,6 +489,9 @@ async def websocket_endpoint(ws: WebSocket):
                     config.providers[pid] = ProviderAuth()
                 config.providers[pid].api_key = key
                 config.save()
+                provider = provider_registry.get(pid)
+                if provider:
+                    provider.api_key = key
                 await ws.send_json({"type": "api_key_saved", "provider": pid})
 
             elif msg_type == "confirm_tool":

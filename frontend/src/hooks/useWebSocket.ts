@@ -32,7 +32,7 @@ function registerGlobalHandlers(ws: NoktonWebSocket) {
     s.setStreaming(true);
     if (event.text) {
       s.appendToLastAssistant(event.text);
-      s.setStreamingText(event.text);
+      s.setStreamingText((s.streamingText || '') + event.text);
     }
   });
 
@@ -40,7 +40,7 @@ function registerGlobalHandlers(ws: NoktonWebSocket) {
     const s = useConversationStore.getState();
     if (event.text) {
       s.appendReasoning(event.text);
-      s.setStreamingText(event.text);
+      s.setStreamingText((s.streamingText || '') + event.text);
     }
   });
 
@@ -49,7 +49,7 @@ function registerGlobalHandlers(ws: NoktonWebSocket) {
     s.setStreaming(false);
     s.setStreamingText('');
     s.setAgentState('idle');
-    fetch('/api/cost')
+      fetch('http://localhost:8765/api/cost')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data && data.session) useCostStore.getState().setSession(data.session);
@@ -95,10 +95,12 @@ function registerGlobalHandlers(ws: NoktonWebSocket) {
     if (event.state) useConversationStore.getState().setAgentState(event.state);
   });
 
-  ws.on('error', (event) => {
+  ws.on('error', (event: any) => {
     const s = useConversationStore.getState();
     s.setStreaming(false);
-    s.setAgentState('error');
+    s.setAgentState('idle');
+    const msg = event.message || event.error || 'Unknown error';
+    s.setError(msg);
   });
 
   ws.on('voice_event', (event) => {
@@ -136,11 +138,12 @@ export function useWebSocket() {
   useEffect(() => {
     const ws = wsRef.current;
     registerGlobalHandlers(ws);
-    ws.connect();
+    if (!ws.isConnected()) ws.connect();
   }, []);
 
   const sendMessage = useCallback((text: string, images?: string[]) => {
     const store = useConversationStore.getState();
+    store.setError(null); // Clear previous errors
     const msg: Message = {
       id: `msg_${Date.now()}`,
       role: 'user',

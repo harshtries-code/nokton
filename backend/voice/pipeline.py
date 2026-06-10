@@ -121,26 +121,30 @@ class VoicePipeline:
     def stop_speaking(self):
         self._tts.stop()
 
-    def _handle_wake(self, _payload: dict):
-        if self._capturing:
-            try:
-                self._tts.stop()
-            except Exception:
-                pass
-            if self._on_state:
+    def _handle_wake(self, payload: dict):
+        event = payload.get("event")
+        if event == "wake" or event is None:
+            if self._capturing:
                 try:
-                    self._on_state("interrupted")
+                    self._tts.stop()
                 except Exception:
                     pass
-        self._capturing = True
-        self._capture_buffer.clear()
-        self._silence_chunks = 0
-        self._emit_state("listening")
-        if self._on_wake:
-            try:
-                self._on_wake()
-            except Exception as e:
-                self._emit_error(f"on_wake_failed: {e}")
+                if self._on_state:
+                    try:
+                        self._on_state("interrupted")
+                    except Exception:
+                        pass
+            self._capturing = True
+            self._capture_buffer.clear()
+            self._silence_chunks = 0
+            self._emit_state("listening")
+            if self._on_wake:
+                try:
+                    self._on_wake()
+                except Exception as e:
+                    self._emit_error(f"on_wake_failed: {e}")
+        elif event == "audio":
+            self.push_audio(payload.get("audio"))
 
     def _finalize_capture(self):
         if not self._capturing:
@@ -176,7 +180,10 @@ class VoicePipeline:
 
     async def _async_invoke(self, cb, *args):
         try:
-            cb(*args)
+            import inspect
+            result = cb(*args)
+            if inspect.isawaitable(result):
+                await result
         except Exception as e:
             self._emit_error(f"callback_failed: {e}")
 

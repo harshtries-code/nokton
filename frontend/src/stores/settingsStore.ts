@@ -37,7 +37,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   load: async () => {
     try {
-      const resp = await fetch('/api/settings');
+      const resp = await fetch('http://localhost:8765/api/settings');
       if (resp.ok) {
         const data = await resp.json();
         set({ settings: { ...DEFAULT_SETTINGS, ...data } });

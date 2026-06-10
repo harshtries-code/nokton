@@ -2,9 +2,9 @@
   "$schema": "https://nokton.local/config.json",
   "model": {
     "provider": "openrouter",
-    "model": "deepseek/deepseek-chat-v3.1:free",
-    "small_model": "openrouter/gpt-oss-20b:free",
-    "vision_model": "openrouter/google/gemma-3-27b-it:free",
+    "model": "openai/gpt-oss-20b:free",
+    "small_model": "openai/gpt-oss-20b:free",
+    "vision_model": "google/gemma-4-26b-a4b-it:free",
     "reasoning_effort": "high",
     "temperature": 0.7,
     "max_tokens": 4096
@@ -36,8 +36,17 @@
   },
   "tools": {
     "permissions": {
-      "safe_categories": ["file_read", "web", "system_read", "clipboard_read"],
-      "ask_categories": ["file_write", "app_control", "system_write"],
+      "safe_categories": [
+        "file_read",
+        "web",
+        "system_read",
+        "clipboard_read"
+      ],
+      "ask_categories": [
+        "file_write",
+        "app_control",
+        "system_write"
+      ],
       "deny_categories": []
     },
     "timeout": 30
@@ -46,7 +55,7 @@
     "wake_word": {
       "enabled": false,
       "sensitivity": 0.7,
-      "model": "hey_nokton"
+      "model": "hey_jarvis"
     },
     "stt": {
       "engine": "faster-whisper",

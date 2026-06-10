@@ -55,7 +55,8 @@ export function Sidebar({ onNewChat, onSettings }: { onNewChat: () => void; onSe
   );
 }
 
-const styles: Record<string, React.CSSProperties | ((s: string) => React.CSSProperties)> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const styles: Record<string, any> = {
   sidebar: {
     width: 220,
     backgroundColor: '#1a1a2e',

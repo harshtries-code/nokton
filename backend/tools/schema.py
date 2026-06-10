@@ -62,15 +62,4 @@ def _parse_docstring_params(doc: str) -> dict[str, str]:
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("Args:"):
-            in_args = True
-            continue
-        if in_args:
-            if stripped.startswith("Returns:") or stripped.startswith("Raises:"):
-                break
-            if ":" in stripped:
-                parts = stripped.split(":", 1)
-                param_name = parts[0].strip().split()[0] if parts[0].strip() else ""
-                param_desc = parts[1].strip()
-                if param_name:
-                    params[param_name] = param_desc
-    return params
+            

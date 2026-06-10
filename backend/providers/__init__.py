@@ -52,6 +52,13 @@ class ProviderRegistry:
             except Exception:
                 pass
 
+    def configure_keys(self, config):
+        """Inject API keys from config into all registered providers."""
+        for pid, provider in self._providers.items():
+            key = config.get_provider_api_key(pid)
+            if key:
+                provider.api_key = key
+
     def stream_chat(
         self,
         provider_id: str,

@@ -1,6 +1,5 @@
 import subprocess
 import shlex
-import asyncio
 from .registry import tool
 
 

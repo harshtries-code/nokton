@@ -4,7 +4,6 @@ from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Any
-from ..providers.base import Message
 
 
 CONVERSATIONS_DIR = Path.home() / ".nokton" / "conversations"

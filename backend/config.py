@@ -53,7 +53,7 @@ class TTSConfig:
 class WakeWordConfig:
     enabled: bool = False
     sensitivity: float = 0.7
-    model: str = "hey_nokton"
+    model: str = "hey_jarvis"
 
 
 @dataclass
@@ -84,6 +84,7 @@ class UIConfig:
     streaming_animation: bool = True
     show_reasoning: bool = False
     show_tool_calls: bool = True
+    personality: str = "nokton"
 
 
 @dataclass
@@ -273,6 +274,7 @@ class Config:
                 "streaming_animation": self.ui.streaming_animation,
                 "show_reasoning": self.ui.show_reasoning,
                 "show_tool_calls": self.ui.show_tool_calls,
+                "personality": self.ui.personality,
             },
         }
 

@@ -1,8 +1,7 @@
-import json
 import requests
 from openai import OpenAI
 from typing import Generator
-from .base import LLMProvider, ModelInfo, ModelCapabilities, ModelPricing, StreamEvent, StreamEventType, Message, ToolDef, _stream_openai_compatible
+from .base import LLMProvider, ModelInfo, ModelCapabilities, ModelPricing, StreamEvent, Message, ToolDef, _stream_openai_compatible
 
 REASONING_MAP = {
     "off": {},
@@ -23,21 +22,54 @@ class OpenRouterProvider(LLMProvider):
             self.base_url = base_url
 
     def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.api_key}",
+        headers = {
             "Content-Type": "application/json",
         }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
+    def _default_models(self) -> list[ModelInfo]:
+        return [
+            ModelInfo(
+                id="openai/gpt-oss-20b:free",
+                provider_id=self.id,
+                name="GPT OSS 20B (Free)",
+                context_window=32768,
+                capabilities=ModelCapabilities(tool_calling=True, streaming=True),
+                pricing=ModelPricing(is_free=True)
+            ),
+            ModelInfo(
+                id="google/gemma-4-26b-a4b-it:free",
+                provider_id=self.id,
+                name="Gemma 4 26B (Free)",
+                context_window=128000,
+                capabilities=ModelCapabilities(tool_calling=True, streaming=True, vision=True),
+                pricing=ModelPricing(is_free=True)
+            ),
+            ModelInfo(
+                id="nvidia/nemotron-3-nano-30b-a3b:free",
+                provider_id=self.id,
+                name="Nemotron 3 Nano 30B (Free)",
+                context_window=32768,
+                capabilities=ModelCapabilities(tool_calling=True, streaming=True),
+                pricing=ModelPricing(is_free=True)
+            ),
+        ]
 
     def get_models(self) -> list[ModelInfo]:
         try:
             resp = requests.get(f"{self.base_url}/models", headers=self._headers(), timeout=10)
             resp.raise_for_status()
             data = resp.json()
+            models_list = data.get("data", [])
+            if not models_list:
+                return self._default_models()
         except Exception:
-            return []
+            return self._default_models()
 
         models = []
-        for m in data.get("data", []):
+        for m in models_list:
             model_id = m["id"]
             is_free = model_id.endswith(":free")
             pricing_data = m.get("pricing", {})

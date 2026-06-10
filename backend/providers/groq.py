@@ -1,5 +1,5 @@
 from openai import OpenAI
-from .base import LLMProvider, ModelInfo, ModelCapabilities, StreamEvent, StreamEventType, _stream_openai_compatible
+from .base import LLMProvider, ModelInfo, ModelCapabilities, _stream_openai_compatible
 
 REASONING_MAP = {
     "off": {},

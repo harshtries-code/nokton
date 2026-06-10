@@ -17,7 +17,7 @@ _DEFAULT_MODEL = "alexa"
 
 _VALID_MODELS = {
     "alexa", "hey_mycroft", "timer", "weather",
-    "jarvis", "computer", "hey_siri", "ok_google",
+    "jarvis", "hey_jarvis", "computer", "hey_siri", "ok_google",
 }
 
 
@@ -35,7 +35,6 @@ class WakeWordDetector:
         self._min_duration_s = min_duration_s
         self._running = False
         self._thread: Optional[threading.Thread] = None
-        self._audio_queue: queue.Queue = queue.Queue()
         self._callback: Optional[Callable[[dict], None]] = None
         self._state = WakeWordState.IDLE
         self._engine = None
@@ -82,12 +81,6 @@ class WakeWordDetector:
             self._thread = None
         self._state = WakeWordState.IDLE
 
-    def feed_audio(self, audio: np.ndarray):
-        try:
-            self._audio_queue.put_nowait(audio)
-        except queue.Full:
-            pass
-
     def _run(self):
         import pyaudio
 
@@ -115,6 +108,13 @@ class WakeWordDetector:
                     except Exception:
                         continue
                     data = np.frombuffer(raw, dtype=np.int16)
+
+                    if self._callback:
+                        try:
+                            self._callback({"event": "audio", "audio": data})
+                        except Exception:
+                            pass
+
                     audio_float = data.astype(np.float32) / 32768.0
 
                     try:
@@ -153,6 +153,13 @@ class WakeWordDetector:
                     except Exception:
                         continue
                     data = np.frombuffer(raw, dtype=np.int16)
+
+                    if self._callback:
+                        try:
+                            self._callback({"event": "audio", "audio": data})
+                        except Exception:
+                            pass
+
                     energy = float(np.sqrt(np.mean(data.astype(np.float32) ** 2)))
                     norm = min(1.0, energy / 5000.0)
                     self._maybe_trigger(norm)

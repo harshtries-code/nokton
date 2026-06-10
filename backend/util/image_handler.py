@@ -1,6 +1,5 @@
 import base64
 import io
-import os
 from ..providers.base import ModelCapabilities
 
 

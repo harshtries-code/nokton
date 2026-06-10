@@ -3,6 +3,7 @@ import psutil
 import platform
 from .registry import tool
 from datetime import datetime
+from ..util.format_utils import format_bytes as _format_bytes
 
 
 @tool(category="system_read")
@@ -122,14 +123,6 @@ def restart(delay_seconds: int = 60) -> str:
         return f"Restart scheduled in {delay} seconds"
     except Exception as e:
         return f"Error initiating restart: {e}"
-
-
-def _format_bytes(size: int) -> str:
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if size < 1024:
-            return f"{size:.1f}{unit}"
-        size /= 1024
-    return f"{size:.1f}PB"
 
 
 def _format_duration(seconds: float) -> str:

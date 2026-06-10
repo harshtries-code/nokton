@@ -1,5 +1,6 @@
 import asyncio
 import time
+import threading
 from typing import AsyncGenerator, Any
 
 from ..providers.base import Message, StreamEventType, ToolDef
@@ -13,9 +14,39 @@ from .skill_manager import SkillManager
 from .interrupt_manager import InterruptManager, InterruptError
 from .cost_tracker import CostTracker
 from .error_classifier import classify_api_error, RetryStrategy
+from .fast_commands import match_fast_command
 
 
 class AgentEngine:
+    @staticmethod
+    async def _async_stream_chat(provider, **kwargs):
+        """Run synchronous stream_chat in a thread, yield events asynchronously."""
+        queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
+        sentinel = object()
+
+        def _run_sync():
+            try:
+                for event in provider.stream_chat(**kwargs):
+                    loop.call_soon_threadsafe(queue.put_nowait, event)
+            except Exception as e:
+                from ..providers.base import StreamEvent, StreamEventType
+                loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    StreamEvent(type=StreamEventType.ERROR, error=str(e)),
+                )
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+        thread = threading.Thread(target=_run_sync, daemon=True)
+        thread.start()
+
+        while True:
+            item = await queue.get()
+            if item is sentinel:
+                break
+            yield item
+
     def __init__(
         self,
         provider_registry: ProviderRegistry,
@@ -74,6 +105,50 @@ class AgentEngine:
     ) -> AsyncGenerator[dict[str, Any], None]:
         self._interrupt.reset()
 
+        # Fast-path: check if this is a simple command we can execute directly
+        if not images:
+            fast_match = match_fast_command(user_input)
+            if fast_match:
+                yield {"type": "status", "state": "executing_tool"}
+                yield {
+                    "type": "tool_call_start",
+                    "id": f"fast_{int(time.time()*1000)}",
+                    "name": fast_match.tool_name,
+                    "args": fast_match.args,
+                }
+                import time as _t
+                t0 = _t.time()
+                result = await self._tools.execute(
+                    fast_match.tool_name,
+                    fast_match.args,
+                    self._config.tools,
+                )
+                duration_ms = int((_t.time() - t0) * 1000)
+                output = (result.get("output") or "") if result.get("success") else (result.get("error") or "")
+
+                if result.get("success"):
+                    yield {"type": "tool_result", "id": fast_match.tool_name, "output": output, "duration_ms": duration_ms}
+                    response = f"Done. {fast_match.tool_name}: {output[:200]}" if output else "Done."
+                else:
+                    yield {"type": "tool_error", "id": fast_match.tool_name, "error": output, "duration_ms": duration_ms}
+                    response = f"Failed: {output[:200]}"
+
+                yield {"type": "assistant_delta", "text": response}
+                yield {"type": "assistant_done"}
+
+                # Save to conversation
+                if not self._conv_manager.current:
+                    self._conv_manager.create(
+                        provider="fast_path", model="direct",
+                        reasoning_effort="off",
+                    )
+                self._conv_manager.add_message("user", user_input)
+                self._conv_manager.add_message("assistant", response)
+                self._conv_manager.save()
+                self._maybe_auto_title()
+                yield {"type": "status", "state": "idle"}
+                return
+
         provider_id = self._config.model.provider
         model = self._config.model.model
 
@@ -86,6 +161,7 @@ class AgentEngine:
                     reasoning_effort=self._config.model.reasoning_effort,
                 )
 
+            image_payloads = None
             if images:
                 try:
                     from ..util.image_handler import process_images_for_model
@@ -119,12 +195,16 @@ class AgentEngine:
             system_prompt = self._prompt_builder.build(
                 tool_descriptions=self._format_tool_descriptions(tools),
                 skill_descriptions=self._skills.load_all(),
+                personality=self._config.ui.personality,
             )
             messages.insert(0, Message(role="system", content=system_prompt))
 
-            max_tokens = max(2048, self._config.model.max_tokens)
+            provider = self._providers.get(provider_id)
+            info = provider.get_model_info(model) if provider else None
+            max_context = info.context_window if info else 128000
+
             threshold = self._config.conversation.compress_threshold
-            if self._compressor.should_compress(messages, 0, max_tokens, threshold):
+            if self._compressor.should_compress(messages, 0, max_context, threshold):
                 old_count = len(messages)
                 messages = self._compressor.compress(messages)
                 if len(messages) < old_count:
@@ -161,7 +241,7 @@ class AgentEngine:
 
                 yield {"type": "status", "state": "thinking"}
 
-                stream = provider.stream_chat(
+                stream_kwargs = dict(
                     model=model,
                     messages=messages,
                     tools=tools,
@@ -170,9 +250,8 @@ class AgentEngine:
                     max_tokens=self._config.model.max_tokens,
                     temperature=self._config.model.temperature,
                 )
-                self._interrupt.set_current_stream(stream)
 
-                for event in stream:
+                async for event in self._async_stream_chat(provider, **stream_kwargs):
                     self._interrupt.check()
                     chunk_count += 1
                     if chunk_count % 16 == 0:
@@ -213,7 +292,7 @@ class AgentEngine:
                                 event.usage.get("reasoning", 0),
                             )
 
-                self._interrupt.set_current_stream(None)
+
                 await asyncio.sleep(0)
 
                 if provider_error and not all_text and not pending_tool_calls:
@@ -229,8 +308,58 @@ class AgentEngine:
                         }
                         await asyncio.sleep(d)
                         self._interrupt.check()
-                        provider_error = None
-                        break
+                        try:
+                            retry_kwargs = dict(
+                                model=model, messages=messages, tools=tools,
+                                tool_choice="auto",
+                                reasoning_effort=self._config.model.reasoning_effort,
+                                max_tokens=self._config.model.max_tokens,
+                                temperature=self._config.model.temperature,
+                            )
+                            all_text = ""
+                            all_reasoning = ""
+                            pending_tool_calls = []
+                            async for event in self._async_stream_chat(provider, **retry_kwargs):
+                                self._interrupt.check()
+                                chunk_count += 1
+                                if chunk_count % 16 == 0:
+                                    await asyncio.sleep(0)
+                                if event.type == StreamEventType.TEXT_DELTA:
+                                    all_text += event.text
+                                    yield {"type": "assistant_delta", "text": event.text}
+                                elif event.type == StreamEventType.REASONING_DELTA:
+                                    all_reasoning += event.text
+                                    yield {"type": "reasoning_delta", "text": event.text}
+                                elif event.type == StreamEventType.TOOL_CALL:
+                                    pending_tool_calls.append({
+                                        "id": event.tool_call_id,
+                                        "name": event.tool_name,
+                                        "args": event.tool_args,
+                                    })
+                                    yield {
+                                        "type": "tool_call",
+                                        "id": event.tool_call_id,
+                                        "name": event.tool_name,
+                                        "args": event.tool_args,
+                                        "requires_confirm": self._tools.requires_confirmation(event.tool_name),
+                                    }
+                                elif event.type == StreamEventType.ERROR:
+                                    provider_error = event.error or "stream error"
+                                    break
+                                elif event.type == StreamEventType.FINISH:
+                                    provider_error = None
+                                    if event.usage:
+                                        self._cost_tracker.add_usage(
+                                            provider_id, model,
+                                            event.usage.get("input", 0),
+                                            event.usage.get("output", 0),
+                                            event.usage.get("reasoning", 0),
+                                        )
+                            await asyncio.sleep(0)
+                            break
+                        except Exception as e:
+                            provider_error = str(e)
+                            classified = classify_api_error(provider_error)
                     if provider_error:
                         fallback_id = self._next_fallback(provider_id) if self._error_retry.should_fallback(classified) else None
                         if fallback_id and fallback_id != provider_id:

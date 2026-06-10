@@ -17,8 +17,9 @@ export function CostBadge() {
       title={`Session: ${session.input_tokens ?? 0} in / ${session.output_tokens ?? 0} out\nTotal: ${total.input_tokens ?? 0} in / ${total.output_tokens ?? 0} out`}
       style={styles.badge}
     >
+      <span style={styles.label}>COST:</span>
       <span style={styles.session}>{fmtCost(session.cost_usd)}</span>
-      <span style={styles.separator}>·</span>
+      <span style={styles.separator}>│</span>
       <span style={styles.total}>Σ {fmtCost(total.cost_usd)}</span>
     </div>
   );
@@ -29,22 +30,21 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 6,
-    padding: '4px 10px',
-    borderRadius: 20,
-    backgroundColor: '#1a1a2e',
-    border: '1px solid #2a2a4a',
+    padding: '2px 8px',
     fontSize: 11,
-    color: '#9ca3af',
-    fontWeight: 500,
-    fontFamily: 'monospace',
+    fontFamily: '"Share Tech Mono", monospace',
+    letterSpacing: 1,
+  },
+  label: {
+    color: 'rgba(0, 212, 255, 0.4)',
   },
   session: {
-    color: '#7c3aed',
+    color: '#00d4ff',
   },
   separator: {
-    color: '#374151',
+    color: 'rgba(0, 212, 255, 0.25)',
   },
   total: {
-    color: '#6b7280',
+    color: 'rgba(0, 212, 255, 0.5)',
   },
 };

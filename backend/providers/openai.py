@@ -1,6 +1,7 @@
-import json
+import re
+
 from openai import OpenAI
-from .base import LLMProvider, ModelInfo, ModelCapabilities, StreamEvent, StreamEventType, Message, ToolDef, _stream_openai_compatible
+from .base import LLMProvider, ModelInfo, ModelCapabilities, Message, ToolDef, _stream_openai_compatible
 
 REASONING_MAP = {
     "off": {"reasoning_effort": "none"},
@@ -33,9 +34,9 @@ class OpenAIProvider(LLMProvider):
                     name=mid,
                     context_window=128000,
                     capabilities=ModelCapabilities(
-                        vision="vision" in mid.lower() or "gpt-4" in mid.lower() and "mini" not in mid.lower(),
+                        vision=("vision" in mid.lower()) or ("gpt-4" in mid.lower() and "mini" not in mid.lower()),
                         tool_calling=True,
-                        reasoning="o" in mid.lower() and mid.lower().startswith("o"),
+                        reasoning=bool(re.match(r'^o[134]', mid.lower())),
                     ),
                 ))
             return result if result else self._default_models()

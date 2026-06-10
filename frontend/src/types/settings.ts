@@ -8,6 +8,10 @@ export interface Settings {
     temperature: number;
     max_tokens: number;
   };
+  providers?: Record<string, {
+    api_key?: string;
+    base_url?: string;
+  }>;
   voice: {
     wake_word: { enabled: boolean; sensitivity: number };
     stt: { engine: string; model_size: string; device: string };
@@ -20,5 +24,6 @@ export interface Settings {
     streaming_animation: boolean;
     show_reasoning: boolean;
     show_tool_calls: boolean;
+    personality?: string;
   };
 }
